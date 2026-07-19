@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyc
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Build artifacts
+build/
+dist/
+*.spec
+*.exe
+*.zip
+
+# Local data
+*.log
+progress.json
+settings.json
+
+# IDE
+.vscode/
+.idea/

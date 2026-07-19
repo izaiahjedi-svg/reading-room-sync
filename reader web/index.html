@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 <!DOCTYPE html>
 <html lang="en">
   <head>
@@ -30,3 +31,37 @@
     <p>Loading <a href="./reader.html">Reading Room</a>…</p>
   </body>
 </html>
+=======
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Reading Room</title>
+    <style>
+      body {
+        margin: 0;
+        font-family: Arial, sans-serif;
+        background: #efeae0;
+        color: #26221d;
+        display: grid;
+        place-items: center;
+        min-height: 100vh;
+      }
+      a {
+        color: #9c6b30;
+        font-weight: 600;
+      }
+    </style>
+  </head>
+  <body>
+    <script>
+      const params = new URLSearchParams(window.location.search);
+      const sync = params.get('sync');
+      const target = sync ? './reader.html?sync=' + encodeURIComponent(sync) : './reader.html';
+      window.location.replace(target);
+    </script>
+    <p>Loading <a href="./reader.html">Reading Room</a>…</p>
+  </body>
+</html>
+>>>>>>> 42116c6 (Initial commit)

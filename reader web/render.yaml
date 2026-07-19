@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 services:
   - type: web
     name: reading-room-sync
@@ -6,3 +7,13 @@ services:
     buildCommand: npm install
     startCommand: node server.js
     autoDeploy: true
+=======
+services:
+  - type: web
+    name: reading-room-sync
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: node server.js
+    autoDeploy: true
+>>>>>>> 42116c6 (Initial commit)
