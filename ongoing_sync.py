@@ -15,12 +15,16 @@ from bs4 import BeautifulSoup
 # ------------------------------------------------------------
 ONGOING_BOOKS = [
     {
-        "book": "Shadow Slave test",
+        "book": "Shadow Slave",
+        "aliases": ["Shadow Slave test"],
         "book_url": "https://freewebnovel.com/novel/shadow-slave",
         "start_chapter": 1,
         "lookback": 8,
         # Optional volume mapping: (volume_name, start, end)
-        "volumes": [],
+        "volumes": [
+            ("Volume 1", 1, 213),
+            ("Volume 2", 214, 482),
+        ],
     },
     # Example:
     # {
@@ -215,11 +219,20 @@ def fetch_chapter(book_url: str, chapter_num: int) -> Optional[Dict[str, str]]:
     return None
 
 
-def build_existing_number_map(index: List[Dict], book_name: str) -> Dict[int, Dict]:
+def build_existing_number_map(index: List[Dict], book_cfg: Dict) -> Dict[int, Dict]:
     mapping: Dict[int, Dict] = {}
+    book_name = (book_cfg.get("book") or "").strip()
+    aliases = {(a or "").strip() for a in book_cfg.get("aliases", []) if (a or "").strip()}
+    allowed_names = {book_name} | aliases
+    source_url = (book_cfg.get("book_url") or "").rstrip("/")
+
     for entry in index:
-        if (entry.get("book") or "") != book_name:
+        entry_book = (entry.get("book") or "").strip()
+        entry_source = (entry.get("sourceBookUrl") or "").rstrip("/")
+        same_source = bool(source_url and entry_source and entry_source == source_url)
+        if not same_source and entry_book not in allowed_names:
             continue
+
         number = parse_chapter_number(entry.get("title") or "")
         if number is not None:
             mapping[number] = entry
@@ -245,7 +258,7 @@ def update_book(data: Dict, book_cfg: Dict) -> Dict[str, int]:
 
     ensure_book_meta(data, book_name)
 
-    existing_map = build_existing_number_map(index, book_name)
+    existing_map = build_existing_number_map(index, book_cfg)
     existing_numbers = sorted(existing_map.keys())
     max_existing = existing_numbers[-1] if existing_numbers else 0
     start_scan = max(start_chapter, max_existing - lookback + 1) if max_existing else start_chapter
@@ -285,8 +298,14 @@ def update_book(data: Dict, book_cfg: Dict) -> Dict[str, int]:
             if old_title != title:
                 entry["title"] = title
                 changed = True
+            if (entry.get("book") or "") != book_name:
+                entry["book"] = book_name
+                changed = True
             if (old_volume or "") != (volume or ""):
                 entry["volume"] = volume
+                changed = True
+            if (entry.get("sourceBookUrl") or "") != book_url.rstrip('/'):
+                entry["sourceBookUrl"] = book_url.rstrip('/')
                 changed = True
             if old_content != content:
                 changed = True
@@ -304,6 +323,7 @@ def update_book(data: Dict, book_cfg: Dict) -> Dict[str, int]:
                 "title": title,
                 "book": book_name,
                 "volume": volume,
+                "sourceBookUrl": book_url.rstrip('/'),
                 "addedAt": added_at_seed + added,
             }
             index.append(entry)
