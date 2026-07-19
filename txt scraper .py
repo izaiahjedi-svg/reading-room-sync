@@ -1,25 +1,24 @@
-import requests
-from bs4 import BeautifulSoup
 import os
-import time
 import re
+import time
 import unicodedata
 
-base_url = "https://freewebnovel.com/novel/omniscient-readers-viewpoint-novel/chapter-{}"
+import requests
+from bs4 import BeautifulSoup
 
+BOOK_NAME = "Shadow Slave"
+BOOK_SLUG = "shadow-slave"
+BASE_URL = f"https://freewebnovel.com/novel/{BOOK_SLUG}/chapter-{{}}"
+MAX_CHAPTER = 95
+
+# Add more ranges as needed. Chapters outside the known ranges will still be saved,
+# but they will go into the fallback "unassigned" folder.
 volumes = {
-    "v1, Clown": (1, 189),
-    "v2, Faceless": (190, 285),
-    "v3, Traveler": (483, 732),
-    "v4, Undying": (733, 946),
-    "v5, Red Priest": (947, 1150),
-    "v6, Lightseeker": (1151, 1266),
-    "v7, The Hanged Man": (1267, 1353),
-    "v8, Fool": (1354, 1394),
-    "v9, Side Story An Ordinary Person's Daily Life": (1395, 1402),
-    "v10, Side Story In Modern Day": (1403, 1430),
-    "v11, Bonus Chapter That Corner": (1431, 1432)
+    "v1": (1, 95),
 }
+
+OUTPUT_ROOT = os.path.join(os.path.dirname(__file__), BOOK_NAME)
+MISS_LIMIT_AFTER_TAIL = 6
 
 headers = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
@@ -90,9 +89,18 @@ def clean_text(text):
     text = format_paragraphs(text)
     return text
 
-# create volume folders
-for v in volumes:
-    os.makedirs(v, exist_ok=True)
+def ensure_output_folders():
+    os.makedirs(OUTPUT_ROOT, exist_ok=True)
+    for v in volumes:
+        os.makedirs(os.path.join(OUTPUT_ROOT, v), exist_ok=True)
+    os.makedirs(os.path.join(OUTPUT_ROOT, "unassigned"), exist_ok=True)
+
+
+def make_output_path(chapter_num):
+    vol = get_volume(chapter_num) or "unassigned"
+    folder = os.path.join(OUTPUT_ROOT, vol)
+    os.makedirs(folder, exist_ok=True)
+    return os.path.join(folder, f"{chapter_num:04}.txt")
 
 def get_volume(ch):
     for vol, (start, end) in volumes.items():
@@ -100,15 +108,13 @@ def get_volume(ch):
             return vol
     return None
 
-total_chapters = sum(end - start + 1 for start, end in volumes.values())
+ensure_output_folders()
+
 downloaded = 0
+misses = 0
 
-for chapter in range(1, 1433):  # Up to max chapter
-    vol = get_volume(chapter)
-    if not vol:
-        continue
-
-    filename = f"{vol}/{chapter:04}.txt"
+for chapter in range(1, MAX_CHAPTER + 1):
+    filename = make_output_path(chapter)
 
     # resume support
     if os.path.exists(filename):
@@ -116,7 +122,7 @@ for chapter in range(1, 1433):  # Up to max chapter
         downloaded += 1
         continue
 
-    url = base_url.format(chapter)
+    url = BASE_URL.format(chapter)
     print(f"Downloading: {url}")
 
     r = None
@@ -134,7 +140,13 @@ for chapter in range(1, 1433):  # Up to max chapter
 
     if not r or r.status_code != 200:
         print(f"Failed to download {chapter} (status: {r.status_code if r else 'N/A'})")
+        misses += 1
+        if misses >= MISS_LIMIT_AFTER_TAIL:
+            print("Reached the end of the available chapters.")
+            break
         continue
+
+    misses = 0
 
     soup = BeautifulSoup(r.text, "html.parser")
 
@@ -154,7 +166,7 @@ for chapter in range(1, 1433):  # Up to max chapter
         f.write(text)
 
     downloaded += 1
-    print(f"Downloaded {chapter} ({downloaded}/{total_chapters})")
+    print(f"Downloaded {chapter} ({downloaded})")
     time.sleep(1)  # Rate limiting
 
 print("Finished downloading.")

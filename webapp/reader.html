@@ -370,8 +370,44 @@
   }
 
   @media (max-width:520px){
-    .topbar{ padding:10px 14px; }
-    .reader-toolbar{ padding:8px 12px; gap:10px; }
+    .topbar{
+      padding:10px 12px;
+      align-items:flex-start;
+      flex-wrap:wrap;
+    }
+    .brand{ font-size:14px; }
+    .topbar-actions{
+      width:100%;
+      gap:6px;
+      overflow-x:auto;
+      flex-wrap:nowrap;
+      padding-bottom:2px;
+    }
+    .topbar-actions button{ white-space:nowrap; }
+    .library-wrap{ padding:14px 12px 42px; }
+    .continue-card{ padding:12px 14px; margin-bottom:16px; }
+    .toolrow{ gap:8px; align-items:stretch; }
+    .toolrow .inline-actions{ width:100%; }
+    .toolrow .inline-actions button{ flex:1; }
+    .book-grid{ grid-template-columns:repeat(2, minmax(0, 1fr)); gap:10px; }
+    .book-title{ white-space:normal; }
+    .chapter-row{ gap:10px; padding:10px 4px; }
+    .chapter-del{ opacity:1; }
+    .reader-shell{ padding:0 12px 84px; }
+    .reader-toolbar{
+      padding:8px 12px;
+      gap:8px;
+      align-items:stretch;
+    }
+    .reader-toolbar .grp{
+      width:100%;
+      justify-content:space-between;
+      flex-wrap:wrap;
+    }
+    .reader-toolbar select{ width:100%; }
+    .stepper{ width:100%; justify-content:space-between; }
+    .chapter-heading{ padding-top:24px; }
+    .chapter-heading h1{ font-size:22px; }
     .ribbon{ right:14px; }
     .reader-nav .center-btn{ display:none; }
   }
@@ -765,6 +801,7 @@
   };
   let view = { mode:'library', chapterId:null, search:'', bookFilter:'', chapterSort:'book-volume-added', booksCollapsed:false };
   let saveTimer = null;
+  let settingsSaveTimer = null;
   let pendingChapterTitle = '';
   let pendingUploadBook = '';
   let pendingUploadVolume = '';
@@ -874,6 +911,14 @@
 
   async function persistBooksMeta(){
     await storageSet('books-meta', booksMeta);
+  }
+
+  function scheduleSettingsPersist(){
+    clearTimeout(settingsSaveTimer);
+    settingsSaveTimer = setTimeout(async () => {
+      await persistProfileState();
+      if (syncKey) await pushRemoteLibrary();
+    }, 250);
   }
 
   function getBookLabel(bookName){
@@ -2094,8 +2139,6 @@
     ribbon.className = 'ribbon';
     ribbon.textContent = pct + '%';
 
-    const toolbar = buildToolbar(meta);
-
     const heading = document.createElement('div');
     heading.className = 'chapter-heading';
     const idx = index.findIndex(c => c.id === meta.id);
@@ -2104,6 +2147,7 @@
     const content = document.createElement('div');
     content.className = 'reader-content';
     applyReaderStyles(content);
+    const toolbar = buildToolbar(meta, content);
     const paras = (data.content || '').split(/\n\s*\n/).map(p => p.trim()).filter(Boolean);
     (paras.length ? paras : [data.content || '']).forEach(p => {
       const pEl = document.createElement('p');
@@ -2201,7 +2245,7 @@
     el.style.margin = '0 auto';
   }
 
-  function buildToolbar(meta){
+  function buildToolbar(meta, contentEl){
     const bar = document.createElement('div');
     bar.className = 'reader-toolbar';
     if (!view.settingsOpen) { bar.style.display = 'none'; return bar; }
@@ -2221,7 +2265,11 @@
       if (f.value === settings.font) o.selected = true;
       sel.appendChild(o);
     });
-    sel.onchange = async () => { settings.font = sel.value; await persistProfileState(); if (syncKey) await pushRemoteLibrary(); render(); };
+    sel.onchange = () => {
+      settings.font = sel.value;
+      if (contentEl) applyReaderStyles(contentEl);
+      scheduleSettingsPersist();
+    };
     fontGrp.appendChild(sel);
 
     // font size
@@ -2231,8 +2279,19 @@
     const sizeStep = document.createElement('div');
     sizeStep.className = 'stepper';
     sizeStep.innerHTML = `<button aria-label="Decrease font size">−</button><span>${settings.fontSize}</span><button aria-label="Increase font size">+</button>`;
-    sizeStep.children[0].onclick = async () => { settings.fontSize = Math.max(13, settings.fontSize-1); await persistProfileState(); if (syncKey) await pushRemoteLibrary(); render(); };
-    sizeStep.children[2].onclick = async () => { settings.fontSize = Math.min(30, settings.fontSize+1); await persistProfileState(); if (syncKey) await pushRemoteLibrary(); render(); };
+    const sizeValue = sizeStep.children[1];
+    sizeStep.children[0].onclick = () => {
+      settings.fontSize = Math.max(13, settings.fontSize-1);
+      sizeValue.textContent = settings.fontSize;
+      if (contentEl) applyReaderStyles(contentEl);
+      scheduleSettingsPersist();
+    };
+    sizeStep.children[2].onclick = () => {
+      settings.fontSize = Math.min(30, settings.fontSize+1);
+      sizeValue.textContent = settings.fontSize;
+      if (contentEl) applyReaderStyles(contentEl);
+      scheduleSettingsPersist();
+    };
     sizeGrp.appendChild(sizeStep);
 
     // line height
@@ -2242,8 +2301,19 @@
     const lineStep = document.createElement('div');
     lineStep.className = 'stepper';
     lineStep.innerHTML = `<button aria-label="Decrease line spacing">−</button><span>${settings.lineHeight.toFixed(1)}</span><button aria-label="Increase line spacing">+</button>`;
-    lineStep.children[0].onclick = async () => { settings.lineHeight = Math.max(1.2, +(settings.lineHeight-0.1).toFixed(1)); await persistProfileState(); if (syncKey) await pushRemoteLibrary(); render(); };
-    lineStep.children[2].onclick = async () => { settings.lineHeight = Math.min(2.4, +(settings.lineHeight+0.1).toFixed(1)); await persistProfileState(); if (syncKey) await pushRemoteLibrary(); render(); };
+    const lineValue = lineStep.children[1];
+    lineStep.children[0].onclick = () => {
+      settings.lineHeight = Math.max(1.2, +(settings.lineHeight-0.1).toFixed(1));
+      lineValue.textContent = settings.lineHeight.toFixed(1);
+      if (contentEl) applyReaderStyles(contentEl);
+      scheduleSettingsPersist();
+    };
+    lineStep.children[2].onclick = () => {
+      settings.lineHeight = Math.min(2.4, +(settings.lineHeight+0.1).toFixed(1));
+      lineValue.textContent = settings.lineHeight.toFixed(1);
+      if (contentEl) applyReaderStyles(contentEl);
+      scheduleSettingsPersist();
+    };
     lineGrp.appendChild(lineStep);
 
     const progressGrp = document.createElement('div');
