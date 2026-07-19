@@ -148,10 +148,6 @@
     cursor:pointer;
   }
   .chapter-row:hover{ background:var(--paper-raised); }
-  .chapter-num{
-    flex:none; width:44px; text-align:right;
-    font-size:12px; color:var(--ink-soft); font-variant-numeric:tabular-nums;
-  }
   .chapter-main{ flex:1; min-width:0; }
   .chapter-title{
     font-size:15px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
@@ -841,8 +837,6 @@
       const stem = file.name.replace(/\.txt$/i, '');
       const requestedTitle = pendingChapterTitle && files.length === 1 ? pendingChapterTitle : '';
       const title = (requestedTitle || stem).trim() || stem;
-      const match = stem.match(/(\d{1,6})/);
-      const num = match ? parseInt(match[1], 10) : null;
       const book = detectBook(file);
       const volume = detectVolume(file);
       const id = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()+Math.random()));
@@ -851,7 +845,7 @@
         failed.push(file.name);
         continue;
       }
-      index.push({ id, title, num, book, volume, addedAt: Date.now() });
+      index.push({ id, title, book, volume, addedAt: Date.now() });
       addedCount++;
       // small pacing gap helps avoid rate-limit errors on large batches
       if (files.length > 10) await new Promise(res => setTimeout(res, 120));
@@ -933,9 +927,6 @@
       if (an != null && bn != null && an !== bn) return an - bn;
       return av.localeCompare(bv);
     }
-    if (a.num != null && b.num != null) return a.num - b.num;
-    if (a.num != null) return -1;
-    if (b.num != null) return 1;
     return a.addedAt - b.addedAt;
   }
 
@@ -1271,7 +1262,6 @@
     const li = document.createElement('li');
     li.className = 'chapter-row' + (opts.current ? ' current' : '');
     li.innerHTML = `
-      <div class="chapter-num">${ch.num != null ? ch.num : '—'}</div>
       <div class="chapter-main">
         <div class="chapter-title ${pct>=98?'chapter-done':''}">${esc(ch.title)}</div>
         <div class="chapter-progress-track"><div class="chapter-progress-fill" style="width:${pct}%"></div></div>
@@ -1299,35 +1289,7 @@
 
     const books = [...new Set(items.map(c => c.book || ''))];
     
-    // If only one book, show volumes
-    if (books.length <= 1){
-      const bookItems = items.filter(c => (c.book || '') === (books[0] || ''));
-      const volumes = [...new Set(bookItems.map(c => c.volume || ''))];
-      
-      if (volumes.length <= 1){
-        const ul = document.createElement('ul');
-        ul.className = 'chapter-list';
-        bookItems.forEach(ch => ul.appendChild(buildChapterRow(ch)));
-        list.appendChild(ul);
-        return;
-      }
-      
-      volumes.forEach(vol => {
-        const groupItems = bookItems.filter(c => (c.volume || '') === vol);
-        const details = document.createElement('details');
-        details.className = 'volume-group';
-        details.open = true;
-        const summary = document.createElement('summary');
-        summary.textContent = vol || 'Chapters';
-        details.appendChild(summary);
-        const ul = document.createElement('ul');
-        ul.className = 'chapter-list nested';
-        groupItems.forEach(ch => ul.appendChild(buildChapterRow(ch)));
-        details.appendChild(ul);
-        list.appendChild(details);
-      });
-      return;
-    }
+    // Always show book-level grouping, even if only one book
 
     // Multiple books: group by book, then volume
     books.forEach(book => {
@@ -1388,30 +1350,7 @@
 
     const books = [...new Set(index.map(c => c.book || ''))];
     
-    // If only one book, show volumes
-    if (books.length <= 1){
-      const bookItems = index.filter(c => (c.book || '') === (books[0] || ''));
-      const volumes = [...new Set(bookItems.map(c => c.volume || ''))];
-      
-      if (volumes.length <= 1){
-        dr.appendChild(wrapList(bookItems));
-        return;
-      }
-      
-      volumes.forEach(vol => {
-        const groupItems = bookItems.filter(c => (c.volume || '') === vol);
-        const details = document.createElement('details');
-        details.className = 'volume-group';
-        details.open = groupItems.some(c => c.id === currentId) || volumes.length < 4;
-        const summary = document.createElement('summary');
-        summary.textContent = vol || 'Chapters';
-        details.append(summary, wrapList(groupItems));
-        dr.appendChild(details);
-      });
-      return;
-    }
-
-    // Multiple books: group by book, then volume
+    // Always show book-level grouping, even if only one book
     books.forEach(book => {
       const bookItems = index.filter(c => (c.book || '') === book);
       const bookDetails = document.createElement('details');
