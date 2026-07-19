@@ -796,6 +796,7 @@
       const title = (requestedTitle || stem).trim() || stem;
       const match = stem.match(/(\d{1,6})/);
       const num = match ? parseInt(match[1], 10) : null;
+      const book = detectBook(file);
       const volume = detectVolume(file);
       const id = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()+Math.random()));
       const ok = await storageSet('chapter:' + id, { title, content: text });
@@ -803,7 +804,7 @@
         failed.push(file.name);
         continue;
       }
-      index.push({ id, title, num, volume, addedAt: Date.now() });
+      index.push({ id, title, num, book, volume, addedAt: Date.now() });
       addedCount++;
       // small pacing gap helps avoid rate-limit errors on large batches
       if (files.length > 10) await new Promise(res => setTimeout(res, 120));
@@ -851,12 +852,34 @@
     return null;
   }
 
+  function detectBook(file){
+    // webkitRelativePath looks like "MyNovel/Volume 1/003.txt"
+    // Extract the root folder as the book name
+    const rel = file.webkitRelativePath;
+    if (!rel) return null;
+    const parts = rel.split('/');
+    if (parts.length >= 1) return parts[0];
+    return null;
+  }
+
   function volumeSortNum(name){
     const m = (name || '').match(/(\d{1,4})/);
     return m ? parseInt(m[1], 10) : null;
   }
 
+  function bookSortNum(name){
+    const m = (name || '').match(/(\d{1,4})/);
+    return m ? parseInt(m[1], 10) : null;
+  }
+
   function sortChapters(a, b){
+    // Sort by book, then volume, then chapter number
+    const ab = a.book || '', bb = b.book || '';
+    if (ab !== bb){
+      const an = bookSortNum(ab), bn = bookSortNum(bb);
+      if (an != null && bn != null && an !== bn) return an - bn;
+      return ab.localeCompare(bb);
+    }
     const av = a.volume || '', bv = b.volume || '';
     if (av !== bv){
       const an = volumeSortNum(av), bn = volumeSortNum(bv);
@@ -951,15 +974,17 @@
     const progress = getProgress();
     if (mode === 'replace') { index = []; progress.lastChapterId = null; progress.percents = {}; }
 
-    const existingTitles = new Set(index.map(c => c.volume + '::' + c.title));
+    const existingKey = (c) => (c.book || '') + '::' + (c.volume || '') + '::' + c.title;
+    const existingTitles = new Set(index.map(existingKey));
     let added = 0;
     for (const entry of payload.index){
-      if (mode === 'merge' && existingTitles.has((entry.volume||'') + '::' + entry.title)) continue;
+      const entryKey = (entry.book || '') + '::' + (entry.volume || '') + '::' + entry.title;
+      if (mode === 'merge' && existingTitles.has(entryKey)) continue;
       const newId = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()+Math.random()));
       const data = payload.chapters[entry.id];
       if (!data) continue;
       await storageSet('chapter:' + newId, data);
-      index.push({ id:newId, title:entry.title, num:entry.num, volume:entry.volume||null, addedAt:Date.now() });
+      index.push({ id:newId, title:entry.title, num:entry.num, book:entry.book||null, volume:entry.volume||null, addedAt:Date.now() });
       if (payload.progress && payload.progress.percents && payload.progress.percents[entry.id] != null){
         progress.percents[newId] = payload.progress.percents[entry.id];
         if (payload.progress.lastChapterId === entry.id) progress.lastChapterId = newId;
@@ -1159,27 +1184,73 @@
       list.innerHTML = `<div style="padding:24px 4px;color:var(--ink-soft);">No chapters match "${esc(view.search)}".</div>`;
       return;
     }
-    const volumes = [...new Set(items.map(c => c.volume || ''))];
-    if (volumes.length <= 1){
-      const ul = document.createElement('ul');
-      ul.className = 'chapter-list';
-      items.forEach(ch => ul.appendChild(buildChapterRow(ch)));
-      list.appendChild(ul);
+
+    const books = [...new Set(items.map(c => c.book || ''))];
+    
+    // If only one book, show volumes
+    if (books.length <= 1){
+      const bookItems = items.filter(c => (c.book || '') === (books[0] || ''));
+      const volumes = [...new Set(bookItems.map(c => c.volume || ''))];
+      
+      if (volumes.length <= 1){
+        const ul = document.createElement('ul');
+        ul.className = 'chapter-list';
+        bookItems.forEach(ch => ul.appendChild(buildChapterRow(ch)));
+        list.appendChild(ul);
+        return;
+      }
+      
+      volumes.forEach(vol => {
+        const groupItems = bookItems.filter(c => (c.volume || '') === vol);
+        const details = document.createElement('details');
+        details.className = 'volume-group';
+        details.open = true;
+        const summary = document.createElement('summary');
+        summary.textContent = vol || 'Chapters';
+        details.appendChild(summary);
+        const ul = document.createElement('ul');
+        ul.className = 'chapter-list nested';
+        groupItems.forEach(ch => ul.appendChild(buildChapterRow(ch)));
+        details.appendChild(ul);
+        list.appendChild(details);
+      });
       return;
     }
-    volumes.forEach(vol => {
-      const groupItems = items.filter(c => (c.volume || '') === vol);
-      const details = document.createElement('details');
-      details.className = 'volume-group';
-      details.open = true;
-      const summary = document.createElement('summary');
-      summary.textContent = vol || 'Chapters';
-      details.appendChild(summary);
-      const ul = document.createElement('ul');
-      ul.className = 'chapter-list nested';
-      groupItems.forEach(ch => ul.appendChild(buildChapterRow(ch)));
-      details.appendChild(ul);
-      list.appendChild(details);
+
+    // Multiple books: group by book, then volume
+    books.forEach(book => {
+      const bookItems = items.filter(c => (c.book || '') === book);
+      const bookDetails = document.createElement('details');
+      bookDetails.className = 'volume-group';
+      bookDetails.open = true;
+      const bookSummary = document.createElement('summary');
+      bookSummary.textContent = book || 'Library';
+      bookDetails.appendChild(bookSummary);
+      
+      const volumes = [...new Set(bookItems.map(c => c.volume || ''))];
+      
+      if (volumes.length <= 1){
+        const ul = document.createElement('ul');
+        ul.className = 'chapter-list nested';
+        bookItems.forEach(ch => ul.appendChild(buildChapterRow(ch)));
+        bookDetails.appendChild(ul);
+      } else {
+        volumes.forEach(vol => {
+          const groupItems = bookItems.filter(c => (c.volume || '') === vol);
+          const volDetails = document.createElement('details');
+          volDetails.className = 'volume-group';
+          volDetails.open = false;
+          const volSummary = document.createElement('summary');
+          volSummary.textContent = vol || 'Chapters';
+          volDetails.appendChild(volSummary);
+          const ul = document.createElement('ul');
+          ul.className = 'chapter-list nested';
+          groupItems.forEach(ch => ul.appendChild(buildChapterRow(ch)));
+          volDetails.appendChild(ul);
+          bookDetails.appendChild(volDetails);
+        });
+      }
+      list.appendChild(bookDetails);
     });
   }
 
@@ -1191,7 +1262,7 @@
     dr.classList.toggle('open', !!view.sidebarOpen);
     dr.innerHTML = '<h2>Chapters</h2>';
     const currentId = view.chapterId;
-    const volumes = [...new Set(index.map(c => c.volume || ''))];
+    
     const wrapList = (items) => {
       const ul = document.createElement('ul');
       ul.className = 'chapter-list';
@@ -1202,11 +1273,21 @@
       })));
       return ul;
     };
-    if (volumes.length <= 1){
-      dr.appendChild(wrapList(index));
-    } else {
+
+    const books = [...new Set(index.map(c => c.book || ''))];
+    
+    // If only one book, show volumes
+    if (books.length <= 1){
+      const bookItems = index.filter(c => (c.book || '') === (books[0] || ''));
+      const volumes = [...new Set(bookItems.map(c => c.volume || ''))];
+      
+      if (volumes.length <= 1){
+        dr.appendChild(wrapList(bookItems));
+        return;
+      }
+      
       volumes.forEach(vol => {
-        const groupItems = index.filter(c => (c.volume || '') === vol);
+        const groupItems = bookItems.filter(c => (c.volume || '') === vol);
         const details = document.createElement('details');
         details.className = 'volume-group';
         details.open = groupItems.some(c => c.id === currentId) || volumes.length < 4;
@@ -1215,7 +1296,38 @@
         details.append(summary, wrapList(groupItems));
         dr.appendChild(details);
       });
+      return;
     }
+
+    // Multiple books: group by book, then volume
+    books.forEach(book => {
+      const bookItems = index.filter(c => (c.book || '') === book);
+      const bookDetails = document.createElement('details');
+      bookDetails.className = 'volume-group';
+      bookDetails.open = bookItems.some(c => c.id === currentId);
+      const bookSummary = document.createElement('summary');
+      bookSummary.textContent = book || 'Library';
+      bookDetails.appendChild(bookSummary);
+      
+      const volumes = [...new Set(bookItems.map(c => c.volume || ''))];
+      
+      if (volumes.length <= 1){
+        bookDetails.appendChild(wrapList(bookItems));
+      } else {
+        volumes.forEach(vol => {
+          const groupItems = bookItems.filter(c => (c.volume || '') === vol);
+          const volDetails = document.createElement('details');
+          volDetails.className = 'volume-group';
+          volDetails.open = groupItems.some(c => c.id === currentId) || volumes.length < 4;
+          const volSummary = document.createElement('summary');
+          volSummary.textContent = vol || 'Chapters';
+          volDetails.appendChild(volSummary);
+          volDetails.appendChild(wrapList(groupItems));
+          bookDetails.appendChild(volDetails);
+        });
+      }
+      dr.appendChild(bookDetails);
+    });
   }
 
   // ---------------------------------------------------------------
