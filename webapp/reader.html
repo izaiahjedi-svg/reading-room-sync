@@ -136,7 +136,15 @@
     background:var(--paper-raised); color:var(--ink); font-size:14px;
   }
   #fileInput{ display:none; }
+  #folderInput{ display:none; }
+  #importInput{ display:none; }
   #coverInput{ display:none; }
+
+  .add-modal-note{
+    font-size:12px;
+    color:var(--ink-soft);
+    margin-top:4px;
+  }
 
   .book-grid{
     display:grid;
@@ -445,6 +453,28 @@
       </div>
     </div>
   </div>
+
+  <div class="modal-backdrop" id="addModalBackdrop"></div>
+  <div class="modal-dialog" id="addModal">
+    <h3>Add Chapters</h3>
+    <div class="form-group">
+      <label for="addBookSelect">Book Destination</label>
+      <select id="addBookSelect"></select>
+      <input type="text" id="addBookNewInput" placeholder="New book name" />
+      <div class="add-modal-note">Pick an existing book or create a new one.</div>
+    </div>
+    <div class="form-group">
+      <label for="addVolumeInput">Volume (optional)</label>
+      <input type="text" id="addVolumeInput" placeholder="e.g., Volume 3" />
+    </div>
+    <div class="button-group" style="justify-content:space-between;">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button id="addChooseFilesBtn" type="button">Choose files</button>
+        <button id="addChooseFolderBtn" type="button">Choose folder</button>
+      </div>
+      <button id="addModalCloseBtn" type="button">Close</button>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -729,6 +759,7 @@
   let saveTimer = null;
   let pendingChapterTitle = '';
   let pendingUploadBook = '';
+  let pendingUploadVolume = '';
   let pendingCoverDataUrl = null;
   let syncStatus = { state:'idle', at:0, message:'' };
 
@@ -1024,18 +1055,97 @@
     coverInput.value = '';
   });
 
+  function getAddModalBookValue(){
+    const select = document.getElementById('addBookSelect');
+    const input = document.getElementById('addBookNewInput');
+    if (!select || !input) return '';
+    if (select.value === '__new__') return (input.value || '').trim();
+    return (select.value || '').trim();
+  }
+
+  function openAddChapterModal(prefillBook){
+    const modal = document.getElementById('addModal');
+    const backdrop = document.getElementById('addModalBackdrop');
+    const select = document.getElementById('addBookSelect');
+    const newBookInput = document.getElementById('addBookNewInput');
+    const volumeInput = document.getElementById('addVolumeInput');
+    const chooseFilesBtn = document.getElementById('addChooseFilesBtn');
+    const chooseFolderBtn = document.getElementById('addChooseFolderBtn');
+    const closeBtn = document.getElementById('addModalCloseBtn');
+    const books = getAllBookNames();
+
+    select.innerHTML = '';
+    const blank = document.createElement('option');
+    blank.value = '';
+    blank.textContent = 'Unassigned';
+    select.appendChild(blank);
+    books.forEach((name) => {
+      const opt = document.createElement('option');
+      opt.value = name;
+      opt.textContent = getBookLabel(name);
+      select.appendChild(opt);
+    });
+    const addNew = document.createElement('option');
+    addNew.value = '__new__';
+    addNew.textContent = '+ New book';
+    select.appendChild(addNew);
+
+    if (prefillBook && books.includes(prefillBook)) {
+      select.value = prefillBook;
+    } else if (prefillBook && !books.includes(prefillBook)) {
+      select.value = '__new__';
+      newBookInput.value = prefillBook;
+    } else {
+      select.value = '';
+      newBookInput.value = '';
+    }
+    volumeInput.value = '';
+    newBookInput.style.display = select.value === '__new__' ? 'block' : 'none';
+
+    const close = () => {
+      modal.classList.remove('open');
+      backdrop.classList.remove('open');
+      select.onchange = null;
+      chooseFilesBtn.onclick = null;
+      chooseFolderBtn.onclick = null;
+      closeBtn.onclick = null;
+      backdrop.onclick = null;
+    };
+
+    select.onchange = () => {
+      newBookInput.style.display = select.value === '__new__' ? 'block' : 'none';
+      if (select.value !== '__new__') newBookInput.value = '';
+    };
+
+    const beginUpload = (useFolder) => {
+      const chosenBook = getAddModalBookValue();
+      const chosenVolume = (volumeInput.value || '').trim();
+      if (select.value === '__new__' && !chosenBook) {
+        alert('Enter a new book name first.');
+        return;
+      }
+      pendingChapterTitle = '';
+      pendingUploadBook = chosenBook;
+      pendingUploadVolume = chosenVolume;
+      close();
+      if (useFolder) folderInput.click();
+      else fileInput.click();
+    };
+
+    chooseFilesBtn.onclick = () => beginUpload(false);
+    chooseFolderBtn.onclick = () => beginUpload(true);
+    closeBtn.onclick = close;
+    backdrop.onclick = close;
+    modal.classList.add('open');
+    backdrop.classList.add('open');
+  }
+
   function startAddChapter(){
-    const title = prompt('Chapter title', 'New chapter');
-    if (title === null) return;
-    pendingChapterTitle = (title || '').trim();
-    pendingUploadBook = '';
-    fileInput.click();
+    openAddChapterModal('');
   }
 
   function startAddChapterToBook(bookName){
-    pendingChapterTitle = '';
-    pendingUploadBook = (bookName || '').trim();
-    fileInput.click();
+    openAddChapterModal((bookName || '').trim());
   }
 
   async function handleUpload(fileList, inputEl){
@@ -1055,7 +1165,7 @@
       const title = (requestedTitle || stem).trim() || stem;
       const detectedBook = detectBook(file);
       const book = detectedBook || pendingUploadBook || null;
-      const volume = detectVolume(file);
+      const volume = detectVolume(file) || pendingUploadVolume || null;
       const id = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()+Math.random()));
       const ok = await storageSet('chapter:' + id, { title, content: text });
       if (!ok){
@@ -1081,6 +1191,7 @@
     if (progressLabel) progressLabel(null);
     pendingChapterTitle = '';
     pendingUploadBook = '';
+    pendingUploadVolume = '';
     inputEl.value = '';
     render();
 
@@ -1679,13 +1790,11 @@
     toolrow.innerHTML = `
       <input class="search-input" placeholder="Filter chapters…" value="${esc(view.search||'')}" />
       <div class="inline-actions">
-        <button type="button" id="newBookBtn">+ Book</button>
         <button type="button" id="manageBookBtn">Manage books</button>
         <button type="button" id="toggleBooksBtn">${view.booksCollapsed ? 'Show books' : 'Hide books'}</button>
       </div>`;
     const searchInput = toolrow.querySelector('input');
     searchInput.oninput = (e) => { view.search = e.target.value; renderChapterList(list); };
-    toolrow.querySelector('#newBookBtn').onclick = () => openBookManager('__new__');
     toolrow.querySelector('#manageBookBtn').onclick = () => openBookManager(view.bookFilter || '');
     toolrow.querySelector('#toggleBooksBtn').onclick = () => { view.booksCollapsed = !view.booksCollapsed; render(); };
     wrap.appendChild(toolrow);
