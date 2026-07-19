@@ -533,11 +533,20 @@
   // ---------------------------------------------------------------
   // State
   // ---------------------------------------------------------------
-  let index = [];              // [{id, title, num, addedAt}]
-  let progress = { lastChapterId:null, percents:{} };
-  let settings = { font:'Georgia, "Iowan Old Style", serif', fontSize:19, lineHeight:1.7, theme:'dark' };
+  let index = [];              // [{id, title, num, addedAt}] - SHARED across profiles
   let activeProfileId = 'izaiah';
   let profiles = getDefaultProfiles();
+  // Per-profile state: each profile has its own progress and settings
+  let profileState = {
+    izaiah: { 
+      progress: { lastChapterId:null, percents:{} },
+      settings: { font:'Georgia, "Iowan Old Style", serif', fontSize:19, lineHeight:1.7, theme:'dark' }
+    },
+    andrew: { 
+      progress: { lastChapterId:null, percents:{} },
+      settings: { font:'Georgia, "Iowan Old Style", serif', fontSize:19, lineHeight:1.7, theme:'dark' }
+    }
+  };
   let view = { mode:'library', chapterId:null, search:'' };
   let saveTimer = null;
   let pendingChapterTitle = '';
@@ -581,36 +590,48 @@
   }
 
   function getActiveProfile(){
-    return profiles[activeProfileId] || profiles.izaiah || { name:'Profile', settings:getDefaultProfileSettings() };
+    return profiles[activeProfileId] || profiles.izaiah || { name:'Profile' };
+  }
+
+  function getActiveProfileState(){
+    if (!profileState[activeProfileId]) {
+      profileState[activeProfileId] = {
+        progress: { lastChapterId:null, percents:{} },
+        settings: getDefaultProfileSettings()
+      };
+    }
+    return profileState[activeProfileId];
+  }
+
+  function getProgress(){
+    return getActiveProfileState().progress;
+  }
+
+  function getSettings(){
+    return getActiveProfileState().settings;
   }
 
   function applyTheme(){
+    const settings = getSettings();
     document.body.setAttribute('data-theme', 'dark');
     document.documentElement.style.colorScheme = 'dark';
   }
 
-  function syncSettingsFromActiveProfile(){
-    const profile = getActiveProfile();
-    settings = Object.assign({}, profile.settings, { theme:'dark' });
-    applyTheme();
-  }
-
   async function persistProfileState(){
-    const profile = getActiveProfile();
-    profile.settings = Object.assign({}, profile.settings, {
-      font: settings.font,
-      fontSize: settings.fontSize,
-      lineHeight: settings.lineHeight,
-      theme: 'dark'
-    });
-    await storageSet('profiles-state', { activeProfileId, profiles });
-    await storageSet('settings', { ...settings, theme:'dark' });
+    await storageSet('profiles-data', profiles);
+    await storageSet('profile-state', profileState);
   }
 
   function switchProfile(profileId){
     if (!profiles[profileId]) return;
     activeProfileId = profileId;
-    syncSettingsFromActiveProfile();
+    if (!profileState[profileId]) {
+      profileState[profileId] = {
+        progress: { lastChapterId:null, percents:{} },
+        settings: getDefaultProfileSettings()
+      };
+    }
+    applyTheme();
     persistProfileState();
     renderTopbar();
     render();
@@ -641,6 +662,8 @@
       const data = await storageGet('chapter:' + ch.id);
       if (data) chapters[ch.id] = data;
     }
+    const progress = getProgress();
+    const settings = getSettings();
     return { version:1, exportedAt:Date.now(), index, chapters, progress, settings };
   }
 
@@ -680,15 +703,16 @@
     const remote = await loadRemoteLibrary();
     if (!remote || !Array.isArray(remote.index)) return false;
     index = remote.index || [];
-    progress = remote.progress || { lastChapterId:null, percents:{} };
-    if (remote.settings) settings = Object.assign(settings, remote.settings);
+    // Merge remote progress into active profile
+    const activeState = getActiveProfileState();
+    if (remote.progress) activeState.progress = remote.progress;
+    if (remote.settings) Object.assign(activeState.settings, remote.settings);
     for (const ch of index){
       const data = remote.chapters && remote.chapters[ch.id];
       if (data) await storageSet('chapter:' + ch.id, data);
     }
     await storageSet('chapters-index', index);
-    await storageSet('progress', progress);
-    await storageSet('settings', settings);
+    await storageSet('profile-state', profileState);
     applyTheme();
     render();
     return true;
@@ -712,31 +736,31 @@
   // Init
   // ---------------------------------------------------------------
   async function init(){
-    const [idx, prog, sett, profileState] = await Promise.all([
+    const [idx, profilesData, profileStateData] = await Promise.all([
       storageGet('chapters-index'),
-      storageGet('progress'),
-      storageGet('settings'),
-      storageGet('profiles-state'),
+      storageGet('profiles-data'),
+      storageGet('profile-state'),
     ]);
     index = idx || [];
-    progress = prog || { lastChapterId:null, percents:{} };
-    profiles = getDefaultProfiles();
-    if (profileState && profileState.profiles){
-      Object.entries(profileState.profiles).forEach(([id, profile]) => {
-        if (!profiles[id]) profiles[id] = { name: profile.name || id, settings:getDefaultProfileSettings() };
-        profiles[id].name = profile.name || profiles[id].name || id;
-        profiles[id].settings = Object.assign({}, getDefaultProfileSettings(), profile.settings || {});
-      });
-      activeProfileId = profileState.activeProfileId && profiles[profileState.activeProfileId] ? profileState.activeProfileId : 'izaiah';
-    } else if (sett){
-      profiles.izaiah.settings = Object.assign({}, profiles.izaiah.settings, sett, { theme:'dark' });
-      activeProfileId = 'izaiah';
+    profiles = (profilesData && typeof profilesData === 'object') ? profilesData : getDefaultProfiles();
+    if (profileStateData && typeof profileStateData === 'object') {
+      profileState = profileStateData;
     }
-    syncSettingsFromActiveProfile();
+    // Ensure all profiles have state
+    Object.keys(profiles).forEach(id => {
+      if (!profileState[id]) {
+        profileState[id] = {
+          progress: { lastChapterId:null, percents:{} },
+          settings: getDefaultProfileSettings()
+        };
+      }
+    });
+    activeProfileId = 'izaiah';
     setSyncKey(getSyncKeyFromUrl() || getStoredSyncKey());
     if (syncKey) {
       await syncFromRemote();
     }
+    applyTheme();
     await persistProfileState();
     renderTopbar();
     render();
@@ -851,9 +875,10 @@
     index = index.filter(c => c.id !== id);
     await storageSet('chapters-index', index);
     await storageDelete('chapter:' + id);
+    const progress = getProgress();
     if (progress.percents[id] != null) delete progress.percents[id];
     if (progress.lastChapterId === id) progress.lastChapterId = null;
-    await storageSet('progress', progress);
+    await persistProfileState();
     if (syncKey) await pushRemoteLibrary();
     render();
   }
@@ -923,7 +948,8 @@
       'Press Cancel to REPLACE your current library entirely.'
     ) ? 'merge' : 'replace';
 
-    if (mode === 'replace') { index = []; progress = { lastChapterId:null, percents:{} }; }
+    const progress = getProgress();
+    if (mode === 'replace') { index = []; progress.lastChapterId = null; progress.percents = {}; }
 
     const existingTitles = new Set(index.map(c => c.volume + '::' + c.title));
     let added = 0;
@@ -942,12 +968,12 @@
     }
     index.sort(sortChapters);
     await storageSet('chapters-index', index);
-    await storageSet('progress', progress);
     if (payload.settings){
-      settings = Object.assign(settings, payload.settings);
-      await storageSet('settings', settings);
+      const settings = getSettings();
+      Object.assign(settings, payload.settings);
       applyTheme();
     }
+    await persistProfileState();
     if (syncKey) await pushRemoteLibrary();
     view.transferOpen = false;
     render();
@@ -1048,6 +1074,7 @@
       return;
     }
 
+    const progress = getProgress();
     // Continue reading card
     if (progress.lastChapterId && index.find(c => c.id === progress.lastChapterId)){
       const ch = index.find(c => c.id === progress.lastChapterId);
@@ -1102,6 +1129,7 @@
 
   function buildChapterRow(ch, opts){
     opts = opts || {};
+    const progress = getProgress();
     const pct = Math.round(progress.percents[ch.id] || 0);
     const li = document.createElement('li');
     li.className = 'chapter-row' + (opts.current ? ' current' : '');
@@ -1211,6 +1239,7 @@
     if (!meta) { view.mode='library'; render(); return; }
 
     const data = await storageGet('chapter:' + meta.id) || { title: meta.title, content: '(missing content)' };
+    const progress = getProgress();
 
     const wrap = document.createElement('div');
     wrap.className = 'reader-shell';
@@ -1295,7 +1324,7 @@
       saveTimer = setTimeout(async () => {
         progress.lastChapterId = meta.id;
         progress.percents[meta.id] = p;
-        await storageSet('progress', progress);
+        await persistProfileState();
       }, 700);
     }
     window.addEventListener('scroll', onScroll, { passive:true });
@@ -1318,6 +1347,7 @@
   }
 
   function applyReaderStyles(el){
+    const settings = getSettings();
     el.style.fontFamily = settings.font;
     el.style.fontSize = settings.fontSize + 'px';
     el.style.lineHeight = settings.lineHeight;
@@ -1329,6 +1359,8 @@
     const bar = document.createElement('div');
     bar.className = 'reader-toolbar';
     if (!view.settingsOpen) { bar.style.display = 'none'; return bar; }
+
+    const settings = getSettings();
 
     // font family
     const fontGrp = document.createElement('div');
