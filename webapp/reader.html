@@ -20,6 +20,7 @@
     --shadow: 0 2px 10px rgba(38,34,29,0.08);
     --radius: 3px;
     --ribbon: var(--brass);
+    --book-folder-bg:#e2dac8;
   }
   [data-theme="dark"]{
     --paper:#1B1B18;
@@ -30,6 +31,7 @@
     --brass:#c69a5f;
     --brass-soft:#9C6B30;
     --shadow: 0 2px 14px rgba(0,0,0,0.4);
+    --book-folder-bg:#2d2b25;
   }
   [data-theme="sepia"]{
     --paper:#E9DCC3;
@@ -38,6 +40,7 @@
     --ink-soft:#7a6a4d;
     --line:#d3c19c;
     --brass:#8a5a2b;
+    --book-folder-bg:#ddccaa;
   }
   *{box-sizing:border-box;}
   html,body{height:100%;}
@@ -96,6 +99,10 @@
     flex:none;
   }
   .topbar-actions{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .sync-chip{ font-size:12px; }
+  .sync-chip.syncing{ color:var(--ink-soft); }
+  .sync-chip.synced{ color:#2f8f4e; }
+  .sync-chip.failed{ color:var(--danger); }
   .profile-switcher{ display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
   .profile-chip{ padding:6px 10px; border-radius:999px; font-size:12px; }
   .profile-chip.active{ background:var(--brass); color:#fff; border-color:var(--brass); }
@@ -176,8 +183,21 @@
   .book-actions button{ flex:1; padding:6px 8px; font-size:12px; }
 
   .chapter-list{ list-style:none; margin:0; padding:0; border-top:1px solid var(--line); }
+  .chapter-list.two-col{
+    display:grid;
+    grid-template-columns:repeat(2, minmax(0, 1fr));
+    gap:0 14px;
+  }
   .chapter-list.nested{ border-top:none; }
   .volume-group{ border-top:1px solid var(--line); }
+  .book-group{ border-top:none; margin-top:10px; }
+  .book-group > summary{
+    background:var(--book-folder-bg);
+    color:var(--ink);
+    border:1px solid var(--line);
+    border-radius:4px;
+    padding:10px 10px;
+  }
   .volume-group summary{
     padding:12px 4px; cursor:pointer; font-size:12px; font-weight:600;
     text-transform:uppercase; letter-spacing:.08em; color:var(--ink-soft);
@@ -346,6 +366,9 @@
     .reader-toolbar{ padding:8px 12px; gap:10px; }
     .ribbon{ right:14px; }
     .reader-nav .center-btn{ display:none; }
+  }
+  @media (max-width:760px){
+    .chapter-list.two-col{ grid-template-columns:1fr; }
   }
 </style>
 </head>
@@ -702,11 +725,12 @@
       settings: { font:'Georgia, "Iowan Old Style", serif', fontSize:19, lineHeight:1.7, theme:'dark' }
     }
   };
-  let view = { mode:'library', chapterId:null, search:'', bookFilter:'', chapterSort:'book-volume-added' };
+  let view = { mode:'library', chapterId:null, search:'', bookFilter:'', chapterSort:'book-volume-added', booksCollapsed:false };
   let saveTimer = null;
   let pendingChapterTitle = '';
   let pendingUploadBook = '';
   let pendingCoverDataUrl = null;
+  let syncStatus = { state:'idle', at:0, message:'' };
 
   const FONT_OPTIONS = [
     { label:'Serif (Georgia)', value:'Georgia, "Iowan Old Style", serif' },
@@ -734,6 +758,34 @@
     const d = document.createElement('div');
     d.textContent = s;
     return d.innerHTML;
+  }
+
+  function formatSyncTime(ts){
+    if (!ts) return '';
+    try {
+      return new Date(ts).toLocaleTimeString([], { hour:'numeric', minute:'2-digit' });
+    } catch (e) {
+      return '';
+    }
+  }
+
+  function getSyncStatusText(){
+    if (!syncKey) return 'Local only';
+    if (syncStatus.state === 'syncing') return 'Syncing...';
+    if (syncStatus.state === 'failed') return 'Sync failed';
+    if (syncStatus.state === 'synced') {
+      const at = formatSyncTime(syncStatus.at);
+      return at ? ('Synced ' + at) : 'Synced';
+    }
+    return 'Sync ready';
+  }
+
+  function updateSyncStatusChip(){
+    const chip = document.getElementById('syncStatusChip');
+    if (!chip) return;
+    chip.className = 'subtle sync-chip ' + (syncStatus.state || 'idle');
+    chip.textContent = getSyncStatusText();
+    chip.title = syncStatus.message || 'Sync status';
   }
 
   function getDefaultProfileSettings(){
@@ -771,8 +823,9 @@
 
   function applyTheme(){
     const settings = getSettings();
-    document.body.setAttribute('data-theme', 'dark');
-    document.documentElement.style.colorScheme = 'dark';
+    const theme = settings.theme || 'dark';
+    document.body.setAttribute('data-theme', theme);
+    document.documentElement.style.colorScheme = theme === 'dark' ? 'dark' : 'light';
   }
 
   async function persistProfileState(){
@@ -860,6 +913,8 @@
 
   async function pushRemoteLibrary(){
     if (!syncKey) return false;
+    syncStatus = { state:'syncing', at:Date.now(), message:'Sync in progress' };
+    updateSyncStatusChip();
     try {
       const payload = await buildLibraryPayload();
       const res = await fetch(SYNC_ENDPOINT, {
@@ -867,9 +922,17 @@
         headers:{'Content-Type':'application/json', 'x-sync-key': syncKey},
         body: JSON.stringify(payload)
       });
+      syncStatus = {
+        state: res.ok ? 'synced' : 'failed',
+        at: Date.now(),
+        message: res.ok ? 'Last sync saved to server' : 'Server rejected sync',
+      };
+      updateSyncStatusChip();
       return res.ok;
     } catch (e) {
       console.warn('Remote sync save failed', e);
+      syncStatus = { state:'failed', at:Date.now(), message:'Sync failed: ' + e.message };
+      updateSyncStatusChip();
       return false;
     }
   }
@@ -891,6 +954,8 @@
     await storageSet('chapters-index', index);
     await storageSet('books-meta', booksMeta);
     await storageSet('profile-state', profileState);
+    syncStatus = { state:'synced', at:Date.now(), message:'Pulled latest library from server' };
+    updateSyncStatusChip();
     applyTheme();
     render();
     return true;
@@ -1301,10 +1366,18 @@
 
     if (view.mode === 'library'){
       brandTitle.textContent = 'Reading Room';
+      const settings = getSettings();
       const darkBadge = document.createElement('button');
       darkBadge.className = 'subtle';
-      darkBadge.textContent = 'Dark';
-      darkBadge.title = 'Always dark mode';
+      darkBadge.textContent = (settings.theme || 'dark') === 'dark' ? 'Dark ✓' : 'Light';
+      darkBadge.title = 'Toggle light/dark theme';
+      darkBadge.onclick = async () => {
+        settings.theme = (settings.theme || 'dark') === 'dark' ? 'light' : 'dark';
+        applyTheme();
+        await persistProfileState();
+        if (syncKey) await pushRemoteLibrary();
+        renderTopbar();
+      };
       const addBtn = document.createElement('button');
       addBtn.className = 'primary';
       addBtn.textContent = '+ Add chapter';
@@ -1323,7 +1396,13 @@
           alert('Sync key set. Open this same site on your phone with ?sync=' + syncKey + ' to pull the library over.');
         }
       };
-      topbarActions.append(profileSwitcher, darkBadge, moreBtn, syncBtn, addBtn);
+      const syncStatusChip = document.createElement('button');
+      syncStatusChip.className = 'subtle sync-chip';
+      syncStatusChip.id = 'syncStatusChip';
+      syncStatusChip.disabled = true;
+      syncStatusChip.textContent = getSyncStatusText();
+      syncStatusChip.title = syncStatus.message || 'Sync status';
+      topbarActions.append(profileSwitcher, darkBadge, syncStatusChip, moreBtn, syncBtn, addBtn);
     } else {
       brandTitle.textContent = '← Library';
       brandTitle.style.cursor = 'pointer';
@@ -1338,7 +1417,13 @@
       settingsBtn.title = 'Reading settings';
       settingsBtn.textContent = 'Aa';
       settingsBtn.onclick = () => { view.settingsOpen = !view.settingsOpen; render(); };
-      topbarActions.append(profileSwitcher, listBtn, settingsBtn);
+      const syncStatusChip = document.createElement('button');
+      syncStatusChip.className = 'subtle sync-chip';
+      syncStatusChip.id = 'syncStatusChip';
+      syncStatusChip.disabled = true;
+      syncStatusChip.textContent = getSyncStatusText();
+      syncStatusChip.title = syncStatus.message || 'Sync status';
+      topbarActions.append(profileSwitcher, syncStatusChip, listBtn, settingsBtn);
     }
   }
 
@@ -1596,14 +1681,16 @@
       <div class="inline-actions">
         <button type="button" id="newBookBtn">+ Book</button>
         <button type="button" id="manageBookBtn">Manage books</button>
+        <button type="button" id="toggleBooksBtn">${view.booksCollapsed ? 'Show books' : 'Hide books'}</button>
       </div>`;
     const searchInput = toolrow.querySelector('input');
     searchInput.oninput = (e) => { view.search = e.target.value; renderChapterList(list); };
     toolrow.querySelector('#newBookBtn').onclick = () => openBookManager('__new__');
     toolrow.querySelector('#manageBookBtn').onclick = () => openBookManager(view.bookFilter || '');
+    toolrow.querySelector('#toggleBooksBtn').onclick = () => { view.booksCollapsed = !view.booksCollapsed; render(); };
     wrap.appendChild(toolrow);
 
-    renderBookGrid(wrap, index);
+    if (!view.booksCollapsed) renderBookGrid(wrap, index);
 
     if (view.transferOpen){
       const panel = document.createElement('div');
@@ -1677,7 +1764,7 @@
     books.forEach(book => {
       const bookItems = items.filter(c => (c.book || '') === book);
       const bookDetails = document.createElement('details');
-      bookDetails.className = 'volume-group';
+      bookDetails.className = 'volume-group book-group';
       bookDetails.open = true;
       const bookSummary = document.createElement('summary');
       bookSummary.textContent = getBookLabel(book);
@@ -1687,7 +1774,7 @@
       
       if (volumes.length <= 1){
         const ul = document.createElement('ul');
-        ul.className = 'chapter-list nested';
+        ul.className = 'chapter-list nested two-col';
         bookItems.forEach(ch => ul.appendChild(buildChapterRow(ch)));
         bookDetails.appendChild(ul);
       } else {
@@ -1700,7 +1787,7 @@
           volSummary.textContent = vol || 'Chapters';
           volDetails.appendChild(volSummary);
           const ul = document.createElement('ul');
-          ul.className = 'chapter-list nested';
+          ul.className = 'chapter-list nested two-col';
           groupItems.forEach(ch => ul.appendChild(buildChapterRow(ch)));
           volDetails.appendChild(ul);
           bookDetails.appendChild(volDetails);
@@ -1736,7 +1823,7 @@
     books.forEach(book => {
       const bookItems = index.filter(c => (c.book || '') === book);
       const bookDetails = document.createElement('details');
-      bookDetails.className = 'volume-group';
+      bookDetails.className = 'volume-group book-group';
       bookDetails.open = bookItems.some(c => c.id === currentId);
       const bookSummary = document.createElement('summary');
       bookSummary.textContent = getBookLabel(book);
@@ -1794,7 +1881,7 @@
     ribbon.className = 'ribbon';
     ribbon.textContent = pct + '%';
 
-    const toolbar = buildToolbar();
+    const toolbar = buildToolbar(meta);
 
     const heading = document.createElement('div');
     heading.className = 'chapter-heading';
@@ -1901,12 +1988,13 @@
     el.style.margin = '0 auto';
   }
 
-  function buildToolbar(){
+  function buildToolbar(meta){
     const bar = document.createElement('div');
     bar.className = 'reader-toolbar';
     if (!view.settingsOpen) { bar.style.display = 'none'; return bar; }
 
     const settings = getSettings();
+    const progress = getProgress();
 
     // font family
     const fontGrp = document.createElement('div');
@@ -1945,7 +2033,26 @@
     lineStep.children[2].onclick = async () => { settings.lineHeight = Math.min(2.4, +(settings.lineHeight+0.1).toFixed(1)); await persistProfileState(); if (syncKey) await pushRemoteLibrary(); render(); };
     lineGrp.appendChild(lineStep);
 
-    bar.append(fontGrp, sizeGrp, lineGrp);
+    const progressGrp = document.createElement('div');
+    progressGrp.className = 'grp';
+    progressGrp.innerHTML = '<label>Progress</label>';
+    const resetBtn = document.createElement('button');
+    resetBtn.textContent = 'Reset chapter';
+    const currentPct = Math.round(progress.percents[meta.id] || 0);
+    resetBtn.disabled = currentPct <= 0;
+    resetBtn.title = currentPct > 0 ? ('Currently ' + currentPct + '% read') : 'No saved progress for this chapter';
+    resetBtn.onclick = async () => {
+      if (!confirm('Reset progress for this chapter?')) return;
+      delete progress.percents[meta.id];
+      if (progress.lastChapterId === meta.id) progress.lastChapterId = null;
+      await persistProfileState();
+      if (syncKey) await pushRemoteLibrary();
+      window.scrollTo(0, 0);
+      render();
+    };
+    progressGrp.appendChild(resetBtn);
+
+    bar.append(fontGrp, sizeGrp, lineGrp, progressGrp);
     return bar;
   }
 
