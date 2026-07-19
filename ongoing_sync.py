@@ -15,15 +15,16 @@ from bs4 import BeautifulSoup
 # ------------------------------------------------------------
 ONGOING_BOOKS = [
     {
-        "book": "Shadow Slave",
+        "book": "Shadow Slave test",
         "aliases": ["Shadow Slave test"],
         "book_url": "https://freewebnovel.com/novel/shadow-slave",
         "start_chapter": 1,
         "lookback": 8,
         # Optional volume mapping: (volume_name, start, end)
         "volumes": [
-            ("Volume 1", 1, 213),
-            ("Volume 2", 214, 482),
+            ("Volume 10", 2261, 2720),
+            ("Volume 11", 2721, 3000),
+            ("Volume 12", 3001, 3500),
         ],
     },
     # Example:
