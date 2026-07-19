@@ -95,14 +95,10 @@
     background:linear-gradient(160deg, var(--brass), var(--brass-soft));
     flex:none;
   }
-<<<<<<< HEAD
-  .topbar-actions{ display:flex; gap:8px; align-items:center; }
-=======
   .topbar-actions{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
   .profile-switcher{ display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
   .profile-chip{ padding:6px 10px; border-radius:999px; font-size:12px; }
   .profile-chip.active{ background:var(--brass); color:#fff; border-color:var(--brass); }
->>>>>>> 42116c6 (Initial commit)
 
   main{ flex:1; width:100%; }
 
@@ -539,18 +535,12 @@
   // ---------------------------------------------------------------
   let index = [];              // [{id, title, num, addedAt}]
   let progress = { lastChapterId:null, percents:{} };
-<<<<<<< HEAD
-  let settings = { font:'Georgia, "Iowan Old Style", serif', fontSize:19, lineHeight:1.7, theme:'light' };
-  let view = { mode:'library', chapterId:null, search:'' };
-  let saveTimer = null;
-=======
   let settings = { font:'Georgia, "Iowan Old Style", serif', fontSize:19, lineHeight:1.7, theme:'dark' };
   let activeProfileId = 'izaiah';
   let profiles = getDefaultProfiles();
   let view = { mode:'library', chapterId:null, search:'' };
   let saveTimer = null;
   let pendingChapterTitle = '';
->>>>>>> 42116c6 (Initial commit)
 
   const FONT_OPTIONS = [
     { label:'Serif (Georgia)', value:'Georgia, "Iowan Old Style", serif' },
@@ -579,10 +569,6 @@
     return d.innerHTML;
   }
 
-<<<<<<< HEAD
-  function applyTheme(){
-    document.body.setAttribute('data-theme', settings.theme);
-=======
   function getDefaultProfileSettings(){
     return { font:'Georgia, "Iowan Old Style", serif', fontSize:19, lineHeight:1.7, theme:'dark' };
   }
@@ -628,7 +614,6 @@
     persistProfileState();
     renderTopbar();
     render();
->>>>>>> 42116c6 (Initial commit)
   }
 
   function getSyncKeyFromUrl(){
@@ -727,17 +712,6 @@
   // Init
   // ---------------------------------------------------------------
   async function init(){
-<<<<<<< HEAD
-    const [idx, prog, sett] = await Promise.all([
-      storageGet('chapters-index'),
-      storageGet('progress'),
-      storageGet('settings'),
-    ]);
-    index = idx || [];
-    progress = prog || { lastChapterId:null, percents:{} };
-    if (sett) settings = Object.assign(settings, sett);
-    applyTheme();
-=======
     const [idx, prog, sett, profileState] = await Promise.all([
       storageGet('chapters-index'),
       storageGet('progress'),
@@ -759,15 +733,11 @@
       activeProfileId = 'izaiah';
     }
     syncSettingsFromActiveProfile();
->>>>>>> 42116c6 (Initial commit)
     setSyncKey(getSyncKeyFromUrl() || getStoredSyncKey());
     if (syncKey) {
       await syncFromRemote();
     }
-<<<<<<< HEAD
-=======
     await persistProfileState();
->>>>>>> 42116c6 (Initial commit)
     renderTopbar();
     render();
   }
@@ -778,8 +748,6 @@
   fileInput.addEventListener('change', (e) => handleUpload(e.target.files, fileInput));
   folderInput.addEventListener('change', (e) => handleUpload(e.target.files, folderInput));
 
-<<<<<<< HEAD
-=======
   function startAddChapter(){
     const title = prompt('Chapter title', 'New chapter');
     if (title === null) return;
@@ -787,7 +755,6 @@
     fileInput.click();
   }
 
->>>>>>> 42116c6 (Initial commit)
   async function handleUpload(fileList, inputEl){
     const files = Array.from(fileList || []).filter(f => /\.txt$/i.test(f.name));
     if (!files.length){ inputEl.value = ''; return; }
@@ -801,29 +768,18 @@
       if (progressLabel) progressLabel(i+1, files.length, file.name);
       const text = await file.text();
       const stem = file.name.replace(/\.txt$/i, '');
-<<<<<<< HEAD
-=======
       const requestedTitle = pendingChapterTitle && files.length === 1 ? pendingChapterTitle : '';
       const title = (requestedTitle || stem).trim() || stem;
->>>>>>> 42116c6 (Initial commit)
       const match = stem.match(/(\d{1,6})/);
       const num = match ? parseInt(match[1], 10) : null;
       const volume = detectVolume(file);
       const id = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()+Math.random()));
-<<<<<<< HEAD
-      const ok = await storageSet('chapter:' + id, { title: stem, content: text });
-=======
       const ok = await storageSet('chapter:' + id, { title, content: text });
->>>>>>> 42116c6 (Initial commit)
       if (!ok){
         failed.push(file.name);
         continue;
       }
-<<<<<<< HEAD
-      index.push({ id, title: stem, num, volume, addedAt: Date.now() });
-=======
       index.push({ id, title, num, volume, addedAt: Date.now() });
->>>>>>> 42116c6 (Initial commit)
       addedCount++;
       // small pacing gap helps avoid rate-limit errors on large batches
       if (files.length > 10) await new Promise(res => setTimeout(res, 120));
@@ -840,10 +796,7 @@
       await pushRemoteLibrary();
     }
     if (progressLabel) progressLabel(null);
-<<<<<<< HEAD
-=======
     pendingChapterTitle = '';
->>>>>>> 42116c6 (Initial commit)
     inputEl.value = '';
     render();
 
@@ -905,8 +858,6 @@
     render();
   }
 
-<<<<<<< HEAD
-=======
   async function renameChapter(id){
     const chapter = index.find(c => c.id === id);
     if (!chapter) return;
@@ -923,8 +874,6 @@
     if (syncKey) await pushRemoteLibrary();
     render();
   }
-
->>>>>>> 42116c6 (Initial commit)
   // ---------------------------------------------------------------
   // Export / Import (manual transfer between devices)
   // ---------------------------------------------------------------
@@ -1011,18 +960,6 @@
 
   function renderTopbar(){
     topbarActions.innerHTML = '';
-<<<<<<< HEAD
-    if (view.mode === 'library'){
-      brandTitle.textContent = 'Reading Room';
-      const addFolderBtn = document.createElement('button');
-      addFolderBtn.className = 'subtle';
-      addFolderBtn.textContent = '+ Add folder';
-      addFolderBtn.onclick = () => folderInput.click();
-      const addBtn = document.createElement('button');
-      addBtn.className = 'primary';
-      addBtn.textContent = '+ Add files';
-      addBtn.onclick = () => fileInput.click();
-=======
     const profileSwitcher = document.createElement('div');
     profileSwitcher.className = 'profile-switcher';
     Object.entries(profiles).forEach(([id, profile]) => {
@@ -1043,7 +980,6 @@
       addBtn.className = 'primary';
       addBtn.textContent = '+ Add chapter';
       addBtn.onclick = () => startAddChapter();
->>>>>>> 42116c6 (Initial commit)
       const moreBtn = document.createElement('button');
       moreBtn.className = 'icon-btn subtle';
       moreBtn.title = 'Export or import your library';
@@ -1058,11 +994,7 @@
           alert('Sync key set. Open this same site on your phone with ?sync=' + syncKey + ' to pull the library over.');
         }
       };
-<<<<<<< HEAD
-      topbarActions.append(moreBtn, syncBtn, addFolderBtn, addBtn);
-=======
       topbarActions.append(profileSwitcher, darkBadge, moreBtn, syncBtn, addBtn);
->>>>>>> 42116c6 (Initial commit)
     } else {
       brandTitle.textContent = '← Library';
       brandTitle.style.cursor = 'pointer';
@@ -1077,11 +1009,7 @@
       settingsBtn.title = 'Reading settings';
       settingsBtn.textContent = 'Aa';
       settingsBtn.onclick = () => { view.settingsOpen = !view.settingsOpen; render(); };
-<<<<<<< HEAD
-      topbarActions.append(listBtn, settingsBtn);
-=======
       topbarActions.append(profileSwitcher, listBtn, settingsBtn);
->>>>>>> 42116c6 (Initial commit)
     }
   }
 
@@ -1112,21 +1040,11 @@
           <div class="big">Your library is empty</div>
           <div>Add the .txt chapter files from your computer to get started — pick individual files or a whole folder at once. They stay saved here — open this same page on your phone and they'll be waiting for you.</div>
           <div style="margin-top:18px; display:flex; gap:10px; justify-content:center; flex-wrap:wrap;">
-<<<<<<< HEAD
-            <button class="subtle" id="emptyAddFolderBtn">+ Add folder</button>
-            <button class="primary" id="emptyAddBtn">+ Add files</button>
-          </div>
-        </div>`;
-      main.appendChild(wrap);
-      document.getElementById('emptyAddBtn').onclick = () => fileInput.click();
-      document.getElementById('emptyAddFolderBtn').onclick = () => folderInput.click();
-=======
             <button class="primary" id="emptyAddBtn">+ Add chapter</button>
           </div>
         </div>`;
       main.appendChild(wrap);
       document.getElementById('emptyAddBtn').onclick = () => startAddChapter();
->>>>>>> 42116c6 (Initial commit)
       return;
     }
 
@@ -1193,11 +1111,6 @@
         <div class="chapter-title ${pct>=98?'chapter-done':''}">${esc(ch.title)}</div>
         <div class="chapter-progress-track"><div class="chapter-progress-fill" style="width:${pct}%"></div></div>
       </div>
-<<<<<<< HEAD
-      ${opts.deletable !== false ? '<button class="chapter-del icon-btn subtle" title="Remove">✕</button>' : ''}`;
-    li.onclick = () => { if (opts.onClick) opts.onClick(ch); else openChapter(ch.id, false); };
-    const delBtn = li.querySelector('.chapter-del');
-=======
       <div style="display:flex;gap:4px;">
         <button class="chapter-del icon-btn subtle" title="Rename chapter">✎</button>
         ${opts.deletable !== false ? '<button class="chapter-del icon-btn subtle" title="Remove">✕</button>' : ''}
@@ -1206,7 +1119,6 @@
     const renameBtn = li.querySelectorAll('.chapter-del')[0];
     const delBtn = li.querySelectorAll('.chapter-del')[1];
     if (renameBtn) renameBtn.onclick = (e) => { e.stopPropagation(); renameChapter(ch.id); };
->>>>>>> 42116c6 (Initial commit)
     if (delBtn) delBtn.onclick = (e) => deleteChapter(ch.id, e);
     return li;
   }
@@ -1430,11 +1342,7 @@
       if (f.value === settings.font) o.selected = true;
       sel.appendChild(o);
     });
-<<<<<<< HEAD
-    sel.onchange = async () => { settings.font = sel.value; await storageSet('settings', settings); render(); };
-=======
     sel.onchange = async () => { settings.font = sel.value; await persistProfileState(); render(); };
->>>>>>> 42116c6 (Initial commit)
     fontGrp.appendChild(sel);
 
     // font size
@@ -1444,13 +1352,8 @@
     const sizeStep = document.createElement('div');
     sizeStep.className = 'stepper';
     sizeStep.innerHTML = `<button aria-label="Decrease font size">−</button><span>${settings.fontSize}</span><button aria-label="Increase font size">+</button>`;
-<<<<<<< HEAD
-    sizeStep.children[0].onclick = async () => { settings.fontSize = Math.max(13, settings.fontSize-1); await storageSet('settings', settings); render(); };
-    sizeStep.children[2].onclick = async () => { settings.fontSize = Math.min(30, settings.fontSize+1); await storageSet('settings', settings); render(); };
-=======
     sizeStep.children[0].onclick = async () => { settings.fontSize = Math.max(13, settings.fontSize-1); await persistProfileState(); render(); };
     sizeStep.children[2].onclick = async () => { settings.fontSize = Math.min(30, settings.fontSize+1); await persistProfileState(); render(); };
->>>>>>> 42116c6 (Initial commit)
     sizeGrp.appendChild(sizeStep);
 
     // line height
@@ -1460,40 +1363,11 @@
     const lineStep = document.createElement('div');
     lineStep.className = 'stepper';
     lineStep.innerHTML = `<button aria-label="Decrease line spacing">−</button><span>${settings.lineHeight.toFixed(1)}</span><button aria-label="Increase line spacing">+</button>`;
-<<<<<<< HEAD
-    lineStep.children[0].onclick = async () => { settings.lineHeight = Math.max(1.2, +(settings.lineHeight-0.1).toFixed(1)); await storageSet('settings', settings); render(); };
-    lineStep.children[2].onclick = async () => { settings.lineHeight = Math.min(2.4, +(settings.lineHeight+0.1).toFixed(1)); await storageSet('settings', settings); render(); };
-    lineGrp.appendChild(lineStep);
-
-    // theme
-    const themeGrp = document.createElement('div');
-    themeGrp.className = 'grp';
-    themeGrp.innerHTML = '<label>Theme</label>';
-    const swatches = document.createElement('div');
-    swatches.className = 'theme-swatches';
-    const themes = [
-      { key:'light', bg:'#EFEAE0' },
-      { key:'sepia', bg:'#E9DCC3' },
-      { key:'dark', bg:'#1B1B18' },
-    ];
-    themes.forEach(t => {
-      const sw = document.createElement('div');
-      sw.className = 'swatch' + (settings.theme===t.key ? ' active' : '');
-      sw.style.background = t.bg;
-      sw.title = t.key;
-      sw.onclick = async () => { settings.theme = t.key; applyTheme(); await storageSet('settings', settings); render(); };
-      swatches.appendChild(sw);
-    });
-    themeGrp.appendChild(swatches);
-
-    bar.append(fontGrp, sizeGrp, lineGrp, themeGrp);
-=======
     lineStep.children[0].onclick = async () => { settings.lineHeight = Math.max(1.2, +(settings.lineHeight-0.1).toFixed(1)); await persistProfileState(); render(); };
     lineStep.children[2].onclick = async () => { settings.lineHeight = Math.min(2.4, +(settings.lineHeight+0.1).toFixed(1)); await persistProfileState(); render(); };
     lineGrp.appendChild(lineStep);
 
     bar.append(fontGrp, sizeGrp, lineGrp);
->>>>>>> 42116c6 (Initial commit)
     return bar;
   }
 
