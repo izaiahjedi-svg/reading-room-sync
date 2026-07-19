@@ -122,12 +122,58 @@
   .toolrow{
     display:flex; gap:10px; align-items:center; margin-bottom:18px; flex-wrap:wrap;
   }
+  .toolrow .inline-actions{ display:flex; gap:8px; flex-wrap:wrap; }
   .search-input{
     flex:1; min-width:160px;
     padding:9px 12px; border:1px solid var(--line); border-radius:var(--radius);
     background:var(--paper-raised); color:var(--ink); font-size:14px;
   }
   #fileInput{ display:none; }
+  #coverInput{ display:none; }
+
+  .book-grid{
+    display:grid;
+    grid-template-columns:repeat(auto-fill,minmax(150px,1fr));
+    gap:12px;
+    margin-bottom:20px;
+  }
+  .book-card{
+    border:1px solid var(--line);
+    border-radius:6px;
+    background:var(--paper-raised);
+    overflow:hidden;
+    box-shadow:var(--shadow);
+    display:flex;
+    flex-direction:column;
+  }
+  .book-cover{
+    width:100%;
+    aspect-ratio:3 / 4;
+    object-fit:cover;
+    background:linear-gradient(135deg, var(--paper), var(--paper-raised));
+  }
+  .book-cover-fallback{
+    width:100%;
+    aspect-ratio:3 / 4;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    font-size:32px;
+    color:var(--ink-soft);
+    background:linear-gradient(135deg, var(--paper), var(--paper-raised));
+  }
+  .book-meta{ padding:10px; }
+  .book-title{
+    font-size:13px;
+    font-weight:600;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    margin-bottom:8px;
+  }
+  .book-sub{ font-size:11px; color:var(--ink-soft); margin-bottom:10px; }
+  .book-actions{ display:flex; gap:6px; }
+  .book-actions button{ flex:1; padding:6px 8px; font-size:12px; }
 
   .chapter-list{ list-style:none; margin:0; padding:0; border-top:1px solid var(--line); }
   .chapter-list.nested{ border-top:none; }
@@ -182,6 +228,33 @@
   .modal-dialog input{
     padding:9px 12px; border:1px solid var(--line); border-radius:var(--radius);
     background:var(--paper); color:var(--ink); font-size:14px;
+  }
+  .modal-dialog select{
+    padding:9px 12px; border:1px solid var(--line); border-radius:var(--radius);
+    background:var(--paper); color:var(--ink); font-size:14px;
+  }
+  .cover-preview{
+    width:100%;
+    max-width:180px;
+    aspect-ratio:3 / 4;
+    object-fit:cover;
+    border:1px solid var(--line);
+    border-radius:6px;
+    background:var(--paper);
+  }
+  .cover-placeholder{
+    width:100%;
+    max-width:180px;
+    aspect-ratio:3 / 4;
+    border:1px dashed var(--line);
+    border-radius:6px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    color:var(--ink-soft);
+    font-size:12px;
+    text-align:center;
+    padding:12px;
   }
   .modal-dialog .button-group{
     display:flex; gap:8px; justify-content:flex-end; margin-top:16px;
@@ -290,6 +363,7 @@
   <input type="file" id="fileInput" accept=".txt" multiple />
   <input type="file" id="folderInput" webkitdirectory directory multiple />
   <input type="file" id="importInput" accept=".json,application/json" />
+  <input type="file" id="coverInput" accept="image/*" />
 
   <div class="modal-backdrop" id="editModalBackdrop"></div>
   <div class="modal-dialog" id="editModal">
@@ -309,6 +383,43 @@
     <div class="button-group">
       <button id="editModalCancelBtn">Cancel</button>
       <button class="primary" id="editModalSaveBtn">Save</button>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="bookModalBackdrop"></div>
+  <div class="modal-dialog" id="bookModal">
+    <h3>Manage Book</h3>
+    <div class="form-group">
+      <label for="bookPicker">Book</label>
+      <select id="bookPicker"></select>
+    </div>
+    <div class="form-group">
+      <label for="bookTitleInput">Book Title</label>
+      <input type="text" id="bookTitleInput" placeholder="e.g., My Book" />
+    </div>
+    <div class="form-group">
+      <label>Cover</label>
+      <div id="bookCoverPreviewWrap"></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+        <button id="bookPickCoverBtn" type="button">Upload cover</button>
+        <button id="bookClearCoverBtn" type="button">Remove cover</button>
+      </div>
+    </div>
+    <div class="form-group">
+      <label for="bookSortSelect">Chapter Sort</label>
+      <select id="bookSortSelect">
+        <option value="book-volume-added">Book/Volume/Added</option>
+        <option value="book-volume-title">Book/Volume/Title</option>
+        <option value="title">Title A-Z</option>
+        <option value="recent">Recently Added</option>
+      </select>
+    </div>
+    <div class="button-group" style="justify-content:space-between;">
+      <button id="bookUploadChaptersBtn" type="button">+ Add Chapters</button>
+      <div style="display:flex;gap:8px;">
+        <button id="bookModalCancelBtn" type="button">Close</button>
+        <button class="primary" id="bookModalSaveBtn" type="button">Save</button>
+      </div>
     </div>
   </div>
 </div>
@@ -576,7 +687,8 @@
   // ---------------------------------------------------------------
   // State
   // ---------------------------------------------------------------
-  let index = [];              // [{id, title, num, addedAt}] - SHARED across profiles
+  let index = [];              // [{id, title, book, volume, addedAt}] - SHARED across profiles
+  let booksMeta = {};          // { [bookName]: { title, coverDataUrl } }
   let activeProfileId = 'izaiah';
   let profiles = getDefaultProfiles();
   // Per-profile state: each profile has its own progress and settings
@@ -590,9 +702,11 @@
       settings: { font:'Georgia, "Iowan Old Style", serif', fontSize:19, lineHeight:1.7, theme:'dark' }
     }
   };
-  let view = { mode:'library', chapterId:null, search:'' };
+  let view = { mode:'library', chapterId:null, search:'', bookFilter:'', chapterSort:'book-volume-added' };
   let saveTimer = null;
   let pendingChapterTitle = '';
+  let pendingUploadBook = '';
+  let pendingCoverDataUrl = null;
 
   const FONT_OPTIONS = [
     { label:'Serif (Georgia)', value:'Georgia, "Iowan Old Style", serif' },
@@ -611,6 +725,7 @@
   const fileInput = document.getElementById('fileInput');
   const folderInput = document.getElementById('folderInput');
   const importInput = document.getElementById('importInput');
+  const coverInput = document.getElementById('coverInput');
   let syncKey = '';
   const SYNC_KEY_STORAGE_KEY = 'reading-room:sync-key';
   const SYNC_ENDPOINT = '/api/library';
@@ -665,6 +780,24 @@
     await storageSet('profile-state', profileState);
   }
 
+  async function persistBooksMeta(){
+    await storageSet('books-meta', booksMeta);
+  }
+
+  function getBookLabel(bookName){
+    const key = (bookName || '').trim();
+    if (!key) return 'Unassigned';
+    const meta = booksMeta[key];
+    return (meta && meta.title) ? meta.title : key;
+  }
+
+  function getAllBookNames(source){
+    const fromIndex = [...new Set((source || index).map(c => (c.book || '').trim()))];
+    const fromMeta = Object.keys(booksMeta || {});
+    const merged = new Set(fromIndex.concat(fromMeta));
+    return [...merged].sort((a, b) => getBookLabel(a).localeCompare(getBookLabel(b)));
+  }
+
   function switchProfile(profileId){
     if (!profiles[profileId]) return;
     activeProfileId = profileId;
@@ -707,7 +840,7 @@
     }
     const progress = getProgress();
     const settings = getSettings();
-    return { version:1, exportedAt:Date.now(), index, chapters, progress, settings };
+    return { version:1, exportedAt:Date.now(), index, chapters, progress, settings, booksMeta };
   }
 
   async function loadRemoteLibrary(){
@@ -746,6 +879,7 @@
     const remote = await loadRemoteLibrary();
     if (!remote || !Array.isArray(remote.index)) return false;
     index = remote.index || [];
+    booksMeta = (remote.booksMeta && typeof remote.booksMeta === 'object') ? remote.booksMeta : {};
     // Merge remote progress into active profile
     const activeState = getActiveProfileState();
     if (remote.progress) activeState.progress = remote.progress;
@@ -755,6 +889,7 @@
       if (data) await storageSet('chapter:' + ch.id, data);
     }
     await storageSet('chapters-index', index);
+    await storageSet('books-meta', booksMeta);
     await storageSet('profile-state', profileState);
     applyTheme();
     render();
@@ -779,12 +914,14 @@
   // Init
   // ---------------------------------------------------------------
   async function init(){
-    const [idx, profilesData, profileStateData] = await Promise.all([
+    const [idx, profilesData, profileStateData, booksMetaData] = await Promise.all([
       storageGet('chapters-index'),
       storageGet('profiles-data'),
       storageGet('profile-state'),
+      storageGet('books-meta'),
     ]);
     index = idx || [];
+    booksMeta = (booksMetaData && typeof booksMetaData === 'object') ? booksMetaData : {};
     profiles = (profilesData && typeof profilesData === 'object') ? profilesData : getDefaultProfiles();
     if (profileStateData && typeof profileStateData === 'object') {
       profileState = profileStateData;
@@ -814,11 +951,25 @@
   // ---------------------------------------------------------------
   fileInput.addEventListener('change', (e) => handleUpload(e.target.files, fileInput));
   folderInput.addEventListener('change', (e) => handleUpload(e.target.files, folderInput));
+  coverInput.addEventListener('change', async (e) => {
+    const file = (e.target.files && e.target.files[0]) ? e.target.files[0] : null;
+    if (!file) return;
+    pendingCoverDataUrl = await readFileAsDataUrl(file);
+    renderBookCoverPreview();
+    coverInput.value = '';
+  });
 
   function startAddChapter(){
     const title = prompt('Chapter title', 'New chapter');
     if (title === null) return;
     pendingChapterTitle = (title || '').trim();
+    pendingUploadBook = '';
+    fileInput.click();
+  }
+
+  function startAddChapterToBook(bookName){
+    pendingChapterTitle = '';
+    pendingUploadBook = (bookName || '').trim();
     fileInput.click();
   }
 
@@ -837,7 +988,8 @@
       const stem = file.name.replace(/\.txt$/i, '');
       const requestedTitle = pendingChapterTitle && files.length === 1 ? pendingChapterTitle : '';
       const title = (requestedTitle || stem).trim() || stem;
-      const book = detectBook(file);
+      const detectedBook = detectBook(file);
+      const book = detectedBook || pendingUploadBook || null;
       const volume = detectVolume(file);
       const id = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()+Math.random()));
       const ok = await storageSet('chapter:' + id, { title, content: text });
@@ -863,6 +1015,7 @@
     }
     if (progressLabel) progressLabel(null);
     pendingChapterTitle = '';
+    pendingUploadBook = '';
     inputEl.value = '';
     render();
 
@@ -871,6 +1024,15 @@
         'These failed to save (likely a temporary connection issue) — try adding them again:\n' +
         failed.slice(0, 20).join('\n') + (failed.length > 20 ? '\n…and ' + (failed.length-20) + ' more' : ''));
     }
+  }
+
+  function readFileAsDataUrl(file){
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(file);
+    });
   }
 
   function showUploadProgress(total){
@@ -1037,7 +1199,15 @@
         const data = await storageGet('chapter:' + ch.id);
         if (data) chapters[ch.id] = data;
       }
-      const payload = { version:1, exportedAt: Date.now(), index, chapters, progress, settings };
+      const payload = {
+        version:1,
+        exportedAt: Date.now(),
+        index,
+        chapters,
+        progress: getProgress(),
+        settings: getSettings(),
+        booksMeta,
+      };
       const blob = new Blob([JSON.stringify(payload)], { type:'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -1076,6 +1246,7 @@
 
     const progress = getProgress();
     if (mode === 'replace') { index = []; progress.lastChapterId = null; progress.percents = {}; }
+    if (mode === 'replace') booksMeta = {};
 
     const existingKey = (c) => (c.book || '') + '::' + (c.volume || '') + '::' + c.title;
     const existingTitles = new Set(index.map(existingKey));
@@ -1087,12 +1258,16 @@
       const data = payload.chapters[entry.id];
       if (!data) continue;
       await storageSet('chapter:' + newId, data);
-      index.push({ id:newId, title:entry.title, num:entry.num, book:entry.book||null, volume:entry.volume||null, addedAt:Date.now() });
+      index.push({ id:newId, title:entry.title, book:entry.book||null, volume:entry.volume||null, addedAt:Date.now() });
       if (payload.progress && payload.progress.percents && payload.progress.percents[entry.id] != null){
         progress.percents[newId] = payload.progress.percents[entry.id];
         if (payload.progress.lastChapterId === entry.id) progress.lastChapterId = newId;
       }
       added++;
+    }
+    if (payload.booksMeta && typeof payload.booksMeta === 'object') {
+      booksMeta = mode === 'merge' ? Object.assign({}, booksMeta, payload.booksMeta) : payload.booksMeta;
+      await persistBooksMeta();
     }
     index.sort(sortChapters);
     await storageSet('chapters-index', index);
@@ -1183,6 +1358,197 @@
   // ---------------------------------------------------------------
   // Library view
   // ---------------------------------------------------------------
+  function getDisplaySortedChapters(items){
+    const list = [...items];
+    const mode = view.chapterSort || 'book-volume-added';
+    if (mode === 'title'){
+      list.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
+      return list;
+    }
+    if (mode === 'recent'){
+      list.sort((a, b) => (b.addedAt || 0) - (a.addedAt || 0));
+      return list;
+    }
+    if (mode === 'book-volume-title'){
+      list.sort((a, b) => {
+        const byBook = sortChapters(a, b);
+        if ((a.book || '') !== (b.book || '') || (a.volume || '') !== (b.volume || '')) return byBook;
+        return (a.title || '').localeCompare(b.title || '');
+      });
+      return list;
+    }
+    list.sort(sortChapters);
+    return list;
+  }
+
+  function renderBookGrid(host, allItems){
+    const books = getAllBookNames(allItems);
+    if (!books.length) return;
+    const grid = document.createElement('div');
+    grid.className = 'book-grid';
+
+    books.forEach((bookName) => {
+      const chaptersInBook = allItems.filter(c => (c.book || '').trim() === bookName);
+      const meta = booksMeta[bookName] || {};
+      const card = document.createElement('div');
+      card.className = 'book-card';
+
+      if (meta.coverDataUrl){
+        const img = document.createElement('img');
+        img.className = 'book-cover';
+        img.src = meta.coverDataUrl;
+        img.alt = getBookLabel(bookName) + ' cover';
+        card.appendChild(img);
+      } else {
+        const fb = document.createElement('div');
+        fb.className = 'book-cover-fallback';
+        fb.textContent = 'BOOK';
+        card.appendChild(fb);
+      }
+
+      const metaWrap = document.createElement('div');
+      metaWrap.className = 'book-meta';
+      metaWrap.innerHTML = `
+        <div class="book-title">${esc(getBookLabel(bookName))}</div>
+        <div class="book-sub">${chaptersInBook.length} chapter${chaptersInBook.length === 1 ? '' : 's'}</div>
+        <div class="book-actions">
+          <button type="button" class="book-open-btn">${view.bookFilter === bookName ? 'Showing' : 'Open'}</button>
+          <button type="button" class="book-manage-btn">Edit</button>
+        </div>`;
+      card.appendChild(metaWrap);
+
+      const openBtn = metaWrap.querySelector('.book-open-btn');
+      const manageBtn = metaWrap.querySelector('.book-manage-btn');
+      openBtn.onclick = () => {
+        view.bookFilter = (view.bookFilter === bookName) ? '' : bookName;
+        render();
+      };
+      manageBtn.onclick = () => openBookManager(bookName);
+      grid.appendChild(card);
+    });
+    host.appendChild(grid);
+  }
+
+  function renderBookCoverPreview(){
+    const wrap = document.getElementById('bookCoverPreviewWrap');
+    const picker = document.getElementById('bookPicker');
+    if (!wrap || !picker) return;
+    const key = (picker.value || '').trim();
+    const meta = booksMeta[key] || {};
+    const cover = pendingCoverDataUrl || meta.coverDataUrl;
+    if (cover){
+      wrap.innerHTML = `<img class="cover-preview" src="${cover}" alt="Book cover preview" />`;
+    } else {
+      wrap.innerHTML = '<div class="cover-placeholder">No cover yet</div>';
+    }
+  }
+
+  function openBookManager(prefillBook){
+    const modal = document.getElementById('bookModal');
+    const backdrop = document.getElementById('bookModalBackdrop');
+    const picker = document.getElementById('bookPicker');
+    const titleInput = document.getElementById('bookTitleInput');
+    const sortSelect = document.getElementById('bookSortSelect');
+    const saveBtn = document.getElementById('bookModalSaveBtn');
+    const cancelBtn = document.getElementById('bookModalCancelBtn');
+    const pickCoverBtn = document.getElementById('bookPickCoverBtn');
+    const clearCoverBtn = document.getElementById('bookClearCoverBtn');
+    const uploadBtn = document.getElementById('bookUploadChaptersBtn');
+    const books = getAllBookNames();
+    pendingCoverDataUrl = null;
+
+    picker.innerHTML = '';
+    books.forEach((name) => {
+      const opt = document.createElement('option');
+      opt.value = name;
+      opt.textContent = getBookLabel(name);
+      picker.appendChild(opt);
+    });
+    const newOpt = document.createElement('option');
+    newOpt.value = '__new__';
+    newOpt.textContent = '+ New book';
+    picker.appendChild(newOpt);
+
+    picker.value = books.includes(prefillBook || '') ? (prefillBook || '') : books[0] || '__new__';
+    sortSelect.value = view.chapterSort || 'book-volume-added';
+
+    function syncFormWithSelection(){
+      const key = (picker.value || '').trim();
+      if (key === '__new__'){
+        titleInput.value = '';
+      } else {
+        titleInput.value = getBookLabel(key);
+      }
+      renderBookCoverPreview();
+    }
+
+    function close(){
+      modal.classList.remove('open');
+      backdrop.classList.remove('open');
+      picker.onchange = null;
+      saveBtn.onclick = null;
+      cancelBtn.onclick = null;
+      pickCoverBtn.onclick = null;
+      clearCoverBtn.onclick = null;
+      uploadBtn.onclick = null;
+      backdrop.onclick = null;
+      pendingCoverDataUrl = null;
+    }
+
+    picker.onchange = syncFormWithSelection;
+    pickCoverBtn.onclick = () => coverInput.click();
+    clearCoverBtn.onclick = () => { pendingCoverDataUrl = ''; renderBookCoverPreview(); };
+    uploadBtn.onclick = () => {
+      const key = picker.value === '__new__' ? (titleInput.value || '').trim() : picker.value;
+      if (!key) { alert('Pick a book title first.'); return; }
+      startAddChapterToBook(key);
+      close();
+    };
+
+    saveBtn.onclick = async () => {
+      const selected = (picker.value || '').trim();
+      const nextTitle = (titleInput.value || '').trim();
+      if (!nextTitle) {
+        alert('Book title cannot be empty.');
+        return;
+      }
+
+      let targetKey = selected;
+      if (selected === '__new__'){
+        targetKey = nextTitle;
+      }
+
+      if (selected && selected !== '__new__' && selected !== nextTitle){
+        index.forEach(ch => {
+          if ((ch.book || '').trim() === selected) ch.book = nextTitle;
+        });
+        if (booksMeta[selected]) {
+          booksMeta[nextTitle] = booksMeta[selected];
+          delete booksMeta[selected];
+        }
+        targetKey = nextTitle;
+      }
+
+      if (!booksMeta[targetKey]) booksMeta[targetKey] = { title: targetKey, coverDataUrl: '' };
+      booksMeta[targetKey].title = nextTitle;
+      if (pendingCoverDataUrl !== null) booksMeta[targetKey].coverDataUrl = pendingCoverDataUrl;
+
+      view.chapterSort = sortSelect.value || 'book-volume-added';
+      index.sort(sortChapters);
+      await storageSet('chapters-index', index);
+      await persistBooksMeta();
+      if (syncKey) await pushRemoteLibrary();
+      close();
+      render();
+    };
+
+    cancelBtn.onclick = close;
+    backdrop.onclick = close;
+    syncFormWithSelection();
+    modal.classList.add('open');
+    backdrop.classList.add('open');
+  }
+
   function renderLibrary(){
     main.innerHTML = '';
     const wrap = document.createElement('div');
@@ -1195,10 +1561,12 @@
           <div>Add the .txt chapter files from your computer to get started — pick individual files or a whole folder at once. They stay saved here — open this same page on your phone and they'll be waiting for you.</div>
           <div style="margin-top:18px; display:flex; gap:10px; justify-content:center; flex-wrap:wrap;">
             <button class="primary" id="emptyAddBtn">+ Add chapter</button>
+            <button id="emptyBookBtn">+ Create book</button>
           </div>
         </div>`;
       main.appendChild(wrap);
       document.getElementById('emptyAddBtn').onclick = () => startAddChapter();
+      document.getElementById('emptyBookBtn').onclick = () => openBookManager('__new__');
       return;
     }
 
@@ -1223,10 +1591,19 @@
     // toolrow: search
     const toolrow = document.createElement('div');
     toolrow.className = 'toolrow';
-    toolrow.innerHTML = `<input class="search-input" placeholder="Filter chapters…" value="${esc(view.search||'')}" />`;
+    toolrow.innerHTML = `
+      <input class="search-input" placeholder="Filter chapters…" value="${esc(view.search||'')}" />
+      <div class="inline-actions">
+        <button type="button" id="newBookBtn">+ Book</button>
+        <button type="button" id="manageBookBtn">Manage books</button>
+      </div>`;
     const searchInput = toolrow.querySelector('input');
     searchInput.oninput = (e) => { view.search = e.target.value; renderChapterList(list); };
+    toolrow.querySelector('#newBookBtn').onclick = () => openBookManager('__new__');
+    toolrow.querySelector('#manageBookBtn').onclick = () => openBookManager(view.bookFilter || '');
     wrap.appendChild(toolrow);
+
+    renderBookGrid(wrap, index);
 
     if (view.transferOpen){
       const panel = document.createElement('div');
@@ -1280,10 +1657,15 @@
 
   function renderChapterList(list){
     const q = (view.search || '').toLowerCase().trim();
-    const items = index.filter(c => !q || c.title.toLowerCase().includes(q));
+    const filtered = index.filter(c => {
+      if (view.bookFilter && (c.book || '').trim() !== view.bookFilter) return false;
+      return !q || c.title.toLowerCase().includes(q);
+    });
+    const items = getDisplaySortedChapters(filtered);
     list.innerHTML = '';
     if (!items.length){
-      list.innerHTML = `<div style="padding:24px 4px;color:var(--ink-soft);">No chapters match "${esc(view.search)}".</div>`;
+      const label = view.bookFilter ? (' in ' + getBookLabel(view.bookFilter)) : '';
+      list.innerHTML = `<div style="padding:24px 4px;color:var(--ink-soft);">No chapters match "${esc(view.search)}"${esc(label)}.</div>`;
       return;
     }
 
@@ -1298,7 +1680,7 @@
       bookDetails.className = 'volume-group';
       bookDetails.open = true;
       const bookSummary = document.createElement('summary');
-      bookSummary.textContent = book || 'Library';
+      bookSummary.textContent = getBookLabel(book);
       bookDetails.appendChild(bookSummary);
       
       const volumes = [...new Set(bookItems.map(c => c.volume || ''))];
@@ -1357,7 +1739,7 @@
       bookDetails.className = 'volume-group';
       bookDetails.open = bookItems.some(c => c.id === currentId);
       const bookSummary = document.createElement('summary');
-      bookSummary.textContent = book || 'Library';
+      bookSummary.textContent = getBookLabel(book);
       bookDetails.appendChild(bookSummary);
       
       const volumes = [...new Set(bookItems.map(c => c.volume || ''))];
