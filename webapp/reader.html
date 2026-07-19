@@ -445,6 +445,14 @@
         <option value="recent">Recently Added</option>
       </select>
     </div>
+    <div class="form-group">
+      <label for="volumeRenameFromSelect">Rename Volume Folder</label>
+      <select id="volumeRenameFromSelect"></select>
+      <input type="text" id="volumeRenameToInput" placeholder="New volume name" />
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+        <button id="renameVolumeBtn" type="button">Rename volume</button>
+      </div>
+    </div>
     <div class="button-group" style="justify-content:space-between;">
       <button id="bookUploadChaptersBtn" type="button">+ Add Chapters</button>
       <div style="display:flex;gap:8px;">
@@ -1645,6 +1653,9 @@
     const picker = document.getElementById('bookPicker');
     const titleInput = document.getElementById('bookTitleInput');
     const sortSelect = document.getElementById('bookSortSelect');
+    const volumeFromSelect = document.getElementById('volumeRenameFromSelect');
+    const volumeToInput = document.getElementById('volumeRenameToInput');
+    const renameVolumeBtn = document.getElementById('renameVolumeBtn');
     const saveBtn = document.getElementById('bookModalSaveBtn');
     const cancelBtn = document.getElementById('bookModalCancelBtn');
     const pickCoverBtn = document.getElementById('bookPickCoverBtn');
@@ -1668,6 +1679,55 @@
     picker.value = books.includes(prefillBook || '') ? (prefillBook || '') : books[0] || '__new__';
     sortSelect.value = view.chapterSort || 'book-volume-added';
 
+    function getVolumesForBook(bookKey){
+      return [...new Set(index
+        .filter(ch => (ch.book || '').trim() === (bookKey || '').trim())
+        .map(ch => (ch.volume || '').trim()))]
+        .sort((a, b) => a.localeCompare(b));
+    }
+
+    function refreshVolumeRenameOptions(){
+      const key = (picker.value || '').trim();
+      volumeFromSelect.innerHTML = '';
+      volumeToInput.value = '';
+      if (!key || key === '__new__'){
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = 'Select an existing book first';
+        volumeFromSelect.appendChild(opt);
+        volumeFromSelect.disabled = true;
+        volumeToInput.disabled = true;
+        renameVolumeBtn.disabled = true;
+        return;
+      }
+
+      const volumes = getVolumesForBook(key);
+      if (!volumes.length){
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = 'No volumes in this book yet';
+        volumeFromSelect.appendChild(opt);
+        volumeFromSelect.disabled = true;
+        volumeToInput.disabled = true;
+        renameVolumeBtn.disabled = true;
+        return;
+      }
+
+      const blank = document.createElement('option');
+      blank.value = '';
+      blank.textContent = 'Pick a volume';
+      volumeFromSelect.appendChild(blank);
+      volumes.forEach((vol) => {
+        const opt = document.createElement('option');
+        opt.value = vol;
+        opt.textContent = vol || 'Unassigned';
+        volumeFromSelect.appendChild(opt);
+      });
+      volumeFromSelect.disabled = false;
+      volumeToInput.disabled = false;
+      renameVolumeBtn.disabled = false;
+    }
+
     function syncFormWithSelection(){
       const key = (picker.value || '').trim();
       if (key === '__new__'){
@@ -1676,6 +1736,7 @@
         titleInput.value = getBookLabel(key);
       }
       renderBookCoverPreview();
+      refreshVolumeRenameOptions();
     }
 
     function close(){
@@ -1687,6 +1748,7 @@
       pickCoverBtn.onclick = null;
       clearCoverBtn.onclick = null;
       uploadBtn.onclick = null;
+      renameVolumeBtn.onclick = null;
       backdrop.onclick = null;
       pendingCoverDataUrl = null;
     }
@@ -1699,6 +1761,48 @@
       if (!key) { alert('Pick a book title first.'); return; }
       startAddChapterToBook(key);
       close();
+    };
+
+    renameVolumeBtn.onclick = async () => {
+      const bookKey = (picker.value || '').trim();
+      const fromVolume = (volumeFromSelect.value || '').trim();
+      const toVolume = (volumeToInput.value || '').trim();
+      if (!bookKey || bookKey === '__new__'){
+        alert('Select an existing book first.');
+        return;
+      }
+      if (!fromVolume){
+        alert('Pick a volume to rename.');
+        return;
+      }
+      if (!toVolume){
+        alert('Enter the new volume name.');
+        return;
+      }
+      if (fromVolume === toVolume){
+        alert('New volume name is the same as the current one.');
+        return;
+      }
+
+      let changed = 0;
+      index.forEach((ch) => {
+        if ((ch.book || '').trim() === bookKey && (ch.volume || '').trim() === fromVolume){
+          ch.volume = toVolume;
+          changed++;
+        }
+      });
+      if (!changed){
+        alert('No chapters found in that volume.');
+        return;
+      }
+
+      index.sort(sortChapters);
+      await storageSet('chapters-index', index);
+      if (syncKey) await pushRemoteLibrary();
+      volumeToInput.value = '';
+      refreshVolumeRenameOptions();
+      render();
+      alert('Renamed volume for ' + changed + ' chapter(s).');
     };
 
     saveBtn.onclick = async () => {
