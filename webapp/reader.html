@@ -166,6 +166,32 @@
   }
   .chapter-row:hover .chapter-del{ opacity:1; }
 
+  /* ---------- Edit Modal ---------- */
+  .modal-backdrop{
+    position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:60; display:none;
+  }
+  .modal-backdrop.open{ display:block; }
+  .modal-dialog{
+    position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); z-index:70;
+    background:var(--paper-raised); border:1px solid var(--line); border-radius:6px;
+    padding:20px; max-width:420px; width:90%; box-shadow:var(--shadow);
+    display:none;
+  }
+  .modal-dialog.open{ display:block; }
+  .modal-dialog h3{ margin:0 0 14px; font-size:16px; }
+  .modal-dialog .form-group{
+    margin-bottom:12px; display:flex; flex-direction:column; gap:4px;
+  }
+  .modal-dialog label{ font-size:12px; color:var(--ink-soft); text-transform:uppercase; letter-spacing:.06em; }
+  .modal-dialog input{
+    padding:9px 12px; border:1px solid var(--line); border-radius:var(--radius);
+    background:var(--paper); color:var(--ink); font-size:14px;
+  }
+  .modal-dialog .button-group{
+    display:flex; gap:8px; justify-content:flex-end; margin-top:16px;
+  }
+  .modal-dialog button{ margin:0; }
+
   .empty-state{
     text-align:center; padding:70px 20px; color:var(--ink-soft);
   }
@@ -268,6 +294,27 @@
   <input type="file" id="fileInput" accept=".txt" multiple />
   <input type="file" id="folderInput" webkitdirectory directory multiple />
   <input type="file" id="importInput" accept=".json,application/json" />
+
+  <div class="modal-backdrop" id="editModalBackdrop"></div>
+  <div class="modal-dialog" id="editModal">
+    <h3>Edit Chapter</h3>
+    <div class="form-group">
+      <label for="editBook">Book</label>
+      <input type="text" id="editBook" placeholder="e.g., Harry Potter" />
+    </div>
+    <div class="form-group">
+      <label for="editVolume">Volume</label>
+      <input type="text" id="editVolume" placeholder="e.g., Volume 1" />
+    </div>
+    <div class="form-group">
+      <label for="editTitle">Chapter Title</label>
+      <input type="text" id="editTitle" placeholder="e.g., The Boy Who Lived" />
+    </div>
+    <div class="button-group">
+      <button id="editModalCancelBtn">Cancel</button>
+      <button class="primary" id="editModalSaveBtn">Save</button>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -922,6 +969,71 @@
     if (syncKey) await pushRemoteLibrary();
     render();
   }
+
+  async function editChapter(id){
+    const chapter = index.find(c => c.id === id);
+    if (!chapter) return;
+    
+    const modal = document.getElementById('editModal');
+    const backdrop = document.getElementById('editModalBackdrop');
+    const bookInput = document.getElementById('editBook');
+    const volumeInput = document.getElementById('editVolume');
+    const titleInput = document.getElementById('editTitle');
+    const cancelBtn = document.getElementById('editModalCancelBtn');
+    const saveBtn = document.getElementById('editModalSaveBtn');
+    
+    bookInput.value = chapter.book || '';
+    volumeInput.value = chapter.volume || '';
+    titleInput.value = chapter.title || '';
+    
+    modal.classList.add('open');
+    backdrop.classList.add('open');
+    titleInput.focus();
+    
+    const closeModal = () => {
+      modal.classList.remove('open');
+      backdrop.classList.remove('open');
+      cancelBtn.onclick = null;
+      saveBtn.onclick = null;
+      backdrop.onclick = null;
+    };
+    
+    const handleSave = async () => {
+      const book = (bookInput.value || '').trim() || null;
+      const volume = (volumeInput.value || '').trim() || null;
+      const title = (titleInput.value || '').trim();
+      
+      if (!title) {
+        alert('Title cannot be empty');
+        return;
+      }
+      
+      chapter.book = book;
+      chapter.volume = volume;
+      chapter.title = title;
+      
+      index.sort(sortChapters);
+      await storageSet('chapters-index', index);
+      
+      const data = await storageGet('chapter:' + id);
+      if (data) {
+        await storageSet('chapter:' + id, { ...data, title });
+      }
+      
+      if (syncKey) await pushRemoteLibrary();
+      
+      closeModal();
+      render();
+    };
+    
+    cancelBtn.onclick = closeModal;
+    saveBtn.onclick = handleSave;
+    backdrop.onclick = closeModal;
+    titleInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') handleSave();
+      else if (e.key === 'Escape') closeModal();
+    });
+  }
   // ---------------------------------------------------------------
   // Export / Import (manual transfer between devices)
   // ---------------------------------------------------------------
@@ -1165,13 +1277,13 @@
         <div class="chapter-progress-track"><div class="chapter-progress-fill" style="width:${pct}%"></div></div>
       </div>
       <div style="display:flex;gap:4px;">
-        <button class="chapter-del icon-btn subtle" title="Rename chapter">✎</button>
+        <button class="chapter-del icon-btn subtle" title="Edit chapter (book, volume, title)">⚙</button>
         ${opts.deletable !== false ? '<button class="chapter-del icon-btn subtle" title="Remove">✕</button>' : ''}
       </div>`;
     li.onclick = () => { if (opts.onClick) opts.onClick(ch); else openChapter(ch.id, false); };
-    const renameBtn = li.querySelectorAll('.chapter-del')[0];
+    const editBtn = li.querySelectorAll('.chapter-del')[0];
     const delBtn = li.querySelectorAll('.chapter-del')[1];
-    if (renameBtn) renameBtn.onclick = (e) => { e.stopPropagation(); renameChapter(ch.id); };
+    if (editBtn) editBtn.onclick = (e) => { e.stopPropagation(); editChapter(ch.id); };
     if (delBtn) delBtn.onclick = (e) => deleteChapter(ch.id, e);
     return li;
   }
