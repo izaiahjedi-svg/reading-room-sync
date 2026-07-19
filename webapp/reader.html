@@ -1488,6 +1488,7 @@
         progress.lastChapterId = meta.id;
         progress.percents[meta.id] = p;
         await persistProfileState();
+        if (syncKey) await pushRemoteLibrary();
       }, 700);
     }
     window.addEventListener('scroll', onScroll, { passive:true });
@@ -1537,7 +1538,7 @@
       if (f.value === settings.font) o.selected = true;
       sel.appendChild(o);
     });
-    sel.onchange = async () => { settings.font = sel.value; await persistProfileState(); render(); };
+    sel.onchange = async () => { settings.font = sel.value; await persistProfileState(); if (syncKey) await pushRemoteLibrary(); render(); };
     fontGrp.appendChild(sel);
 
     // font size
@@ -1547,8 +1548,8 @@
     const sizeStep = document.createElement('div');
     sizeStep.className = 'stepper';
     sizeStep.innerHTML = `<button aria-label="Decrease font size">−</button><span>${settings.fontSize}</span><button aria-label="Increase font size">+</button>`;
-    sizeStep.children[0].onclick = async () => { settings.fontSize = Math.max(13, settings.fontSize-1); await persistProfileState(); render(); };
-    sizeStep.children[2].onclick = async () => { settings.fontSize = Math.min(30, settings.fontSize+1); await persistProfileState(); render(); };
+    sizeStep.children[0].onclick = async () => { settings.fontSize = Math.max(13, settings.fontSize-1); await persistProfileState(); if (syncKey) await pushRemoteLibrary(); render(); };
+    sizeStep.children[2].onclick = async () => { settings.fontSize = Math.min(30, settings.fontSize+1); await persistProfileState(); if (syncKey) await pushRemoteLibrary(); render(); };
     sizeGrp.appendChild(sizeStep);
 
     // line height
@@ -1558,8 +1559,8 @@
     const lineStep = document.createElement('div');
     lineStep.className = 'stepper';
     lineStep.innerHTML = `<button aria-label="Decrease line spacing">−</button><span>${settings.lineHeight.toFixed(1)}</span><button aria-label="Increase line spacing">+</button>`;
-    lineStep.children[0].onclick = async () => { settings.lineHeight = Math.max(1.2, +(settings.lineHeight-0.1).toFixed(1)); await persistProfileState(); render(); };
-    lineStep.children[2].onclick = async () => { settings.lineHeight = Math.min(2.4, +(settings.lineHeight+0.1).toFixed(1)); await persistProfileState(); render(); };
+    lineStep.children[0].onclick = async () => { settings.lineHeight = Math.max(1.2, +(settings.lineHeight-0.1).toFixed(1)); await persistProfileState(); if (syncKey) await pushRemoteLibrary(); render(); };
+    lineStep.children[2].onclick = async () => { settings.lineHeight = Math.min(2.4, +(settings.lineHeight+0.1).toFixed(1)); await persistProfileState(); if (syncKey) await pushRemoteLibrary(); render(); };
     lineGrp.appendChild(lineStep);
 
     bar.append(fontGrp, sizeGrp, lineGrp);
