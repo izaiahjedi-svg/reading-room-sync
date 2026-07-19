@@ -1,0 +1,50 @@
+name: Ongoing Novel Sync
+
+on:
+  schedule:
+    - cron: "0 */4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ongoing-novel-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      READER_SYNC_KEY: ${{ secrets.READER_SYNC_KEY }}
+      READER_SYNC_ENDPOINT: ${{ secrets.READER_SYNC_ENDPOINT }}
+      READER_SYNC_BASE_URL: ${{ secrets.READER_SYNC_BASE_URL }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install scraper dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests beautifulsoup4
+
+      - name: Validate required secrets
+        shell: bash
+        run: |
+          if [ -z "$READER_SYNC_KEY" ]; then
+            echo "Missing READER_SYNC_KEY secret"
+            exit 1
+          fi
+          if [ -z "$READER_SYNC_ENDPOINT" ] && [ -z "$READER_SYNC_BASE_URL" ]; then
+            echo "Set either READER_SYNC_ENDPOINT or READER_SYNC_BASE_URL secret"
+            exit 1
+          fi
+
+      - name: Run ongoing sync
+        run: python "ongoing_sync.py"
