@@ -8,11 +8,13 @@ const port = process.env.PORT || 3000;
 const dataDir = path.join(__dirname, '.data');
 const keyDir = path.join(dataDir, 'keys');
 const coverDir = path.join(dataDir, 'covers');
+const chapterDir = path.join(dataDir, 'chapters');
 const legacyDataFile = path.join(dataDir, 'library.json');
 
 if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
 if (!fs.existsSync(keyDir)) fs.mkdirSync(keyDir, { recursive: true });
 if (!fs.existsSync(coverDir)) fs.mkdirSync(coverDir, { recursive: true });
+if (!fs.existsSync(chapterDir)) fs.mkdirSync(chapterDir, { recursive: true });
 
 app.use(express.json({ limit: '200mb' }));
 app.use(express.static(__dirname));
@@ -192,6 +194,36 @@ function coverFilePath(key, bookName) {
   return path.join(dir, safeBookSlugForCover(bookName) + '.json');
 }
 
+function chapterFilePath(key, chapterId) {
+  const kd = keyDigest(key);
+  const dir = path.join(chapterDir, kd);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  const id = (chapterId || '').toString().trim();
+  return path.join(dir, id + '.json');
+}
+
+function readChapterData(key, chapterId) {
+  const p = chapterFilePath(key, chapterId);
+  if (!fs.existsSync(p)) return null;
+  try {
+    return JSON.parse(fs.readFileSync(p, 'utf8'));
+  } catch (e) {
+    return null;
+  }
+}
+
+function writeChapterData(key, chapterId, value) {
+  const p = chapterFilePath(key, chapterId);
+  fs.writeFileSync(p, JSON.stringify(value || {}), 'utf8');
+}
+
+function readChapterWithLegacyFallback(key, chapterId) {
+  const chapter = readChapterData(key, chapterId);
+  if (chapter) return chapter;
+  const data = readUnifiedData(key);
+  return (data && data.chapters && data.chapters[chapterId]) ? data.chapters[chapterId] : null;
+}
+
 function parseDataUrlImage(dataUrl) {
   const m = /^data:([^;,]+);base64,([a-z0-9+/=]+)$/i.exec((dataUrl || '').trim());
   if (!m) return null;
@@ -342,6 +374,26 @@ app.post('/api/cover', (req, res) => {
   } catch (e) {
     return res.status(500).json({ error: 'Failed to save cover' });
   }
+});
+
+app.get('/api/chapter', (req, res) => {
+  const key = (req.query.key || '').toString().trim();
+  const chapterId = (req.query.id || '').toString().trim();
+  if (!key || !chapterId) return res.status(400).json({ error: 'Missing key or chapter id' });
+  const data = readChapterWithLegacyFallback(key, chapterId);
+  if (!data) return res.status(404).json({ error: 'Chapter not found' });
+  return res.json({ data });
+});
+
+app.post('/api/chapter', (req, res) => {
+  const key = (req.headers['x-sync-key'] || '').toString().trim();
+  const chapterId = (req.body && req.body.id ? req.body.id : '').toString().trim();
+  const chapter = req.body && req.body.data;
+  if (!key) return res.status(400).json({ error: 'Missing sync key' });
+  if (!chapterId) return res.status(400).json({ error: 'Missing chapter id' });
+  if (!chapter || typeof chapter !== 'object') return res.status(400).json({ error: 'Missing chapter data' });
+  writeChapterData(key, chapterId, chapter);
+  return res.json({ ok: true, id: chapterId });
 });
 
 app.get('/api/state', (req, res) => {

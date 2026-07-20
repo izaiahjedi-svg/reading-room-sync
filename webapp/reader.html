@@ -948,6 +948,7 @@
   const SYNC_ENDPOINT = '/api/library';
   const STATE_ENDPOINT = '/api/state';
   const COVER_ENDPOINT = '/api/cover';
+  const CHAPTER_ENDPOINT = '/api/chapter';
 
   function getRouteBookSlug(){
     const parts = window.location.pathname.split('/').filter(Boolean);
@@ -1198,13 +1199,6 @@
 
   async function buildLibraryPayload(options){
     const progressOnly = !!(options && options.progressOnly);
-    const chapters = {};
-    if (!progressOnly) {
-      for (const ch of index){
-        const data = await storageGet('chapter:' + ch.id);
-        if (data) chapters[ch.id] = data;
-      }
-    }
     const progress = getProgress();
     const settings = getSettings();
     if (progressOnly) {
@@ -1214,7 +1208,6 @@
       version:1,
       exportedAt:Date.now(),
       index,
-      chapters,
       progress,
       settings,
       booksMeta: compactBooksMetaForSync(booksMeta),
@@ -1228,12 +1221,17 @@
     const keys = (keysRes && keysRes.keys) ? keysRes.keys : [];
     const scopedKeys = keys.filter((k) => /^book:[^:]+:/.test(k));
     const globalKeys = keys.filter((k) => !/^book:[^:]+:/.test(k));
-    const missingChapterCount = (payload.index || []).filter((ch) => ch && ch.id && !payload.chapters[ch.id]).length;
+    let missingChapterCount = 0;
+    for (const ch of (payload.index || [])) {
+      if (!ch || !ch.id) continue;
+      const local = await storageGet('chapter:' + ch.id);
+      if (!local) missingChapterCount++;
+    }
     return {
       books: getAllBookNames(index).length,
       chapters: index.length,
       payloadBytes: payloadJson.length,
-      chapterBodies: Object.keys(payload.chapters || {}).length,
+      chapterBodies: index.length - missingChapterCount,
       missingChapterCount,
       keysTotal: keys.length,
       keysScoped: scopedKeys.length,
@@ -1311,6 +1309,38 @@
       return { ok:true, coverPath: (payload && payload.coverPath) ? payload.coverPath : '' };
     } catch (e) {
       return { ok:false, coverPath:'' };
+    }
+  }
+
+  async function pushChapterToRemote(chapterId, data){
+    if (!syncKey || !chapterId || !data) return false;
+    try {
+      const res = await fetch(CHAPTER_ENDPOINT, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-sync-key': syncKey,
+        },
+        body: JSON.stringify({ id: chapterId, data }),
+      });
+      return !!res.ok;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  async function loadChapterFromRemote(chapterId){
+    if (!syncKey || !chapterId) return null;
+    try {
+      const url = new URL(CHAPTER_ENDPOINT, window.location.origin);
+      url.searchParams.set('key', syncKey);
+      url.searchParams.set('id', chapterId);
+      const res = await fetch(url.toString());
+      if (!res.ok) return null;
+      const payload = await res.json();
+      return payload && payload.data ? payload.data : null;
+    } catch (e) {
+      return null;
     }
   }
 
@@ -1456,29 +1486,6 @@
         }
 
         const payload = await buildLibraryPayload({ progressOnly });
-        const missingChapterIds = progressOnly ? [] : (payload.index || [])
-          .map((ch) => ch && ch.id)
-          .filter((id) => id && !payload.chapters[id]);
-        if (missingChapterIds.length) {
-          console.warn('Sync blocked due to missing local chapter content', missingChapterIds.slice(0, 20));
-          const pulled = !recoveryAttempted && await syncFromRemote();
-          syncDebug.recoveryAttempts += pulled ? 1 : 0;
-          recoveryAttempted = true;
-          if (pulled) {
-            syncPending = true;
-            continue;
-          }
-          syncDebug.failures++;
-          syncDebug.lastReason = 'Sync blocked: missing local chapter content';
-          syncDebug.lastAt = Date.now();
-          syncStatus = {
-            state:'failed',
-            at: Date.now(),
-            message:'Sync blocked: missing local chapter content'
-          };
-          updateSyncStatusChip();
-          return false;
-        }
         const payloadJson = JSON.stringify(payload);
         const payloadSig = payloadSignatureFromPayload(payload);
         syncDebug.lastPayloadBytes = payloadJson.length;
@@ -1563,9 +1570,11 @@
       });
       index = mergedIndex;
       booksMeta = Object.assign({}, currentBooksMeta, remote.booksMeta || {});
-      if (remote.chapters && typeof remote.chapters === 'object') {
-        for (const ch of remote.index) {
-          const data = remote.chapters[ch.id];
+      for (const ch of remote.index) {
+        if (!ch || !ch.id) continue;
+        const local = await storageGet('chapter:' + ch.id);
+        if (!local) {
+          const data = await loadChapterFromRemote(ch.id);
           if (data) await storageSet('chapter:' + ch.id, data);
         }
       }
@@ -1576,10 +1585,6 @@
       booksMeta = (remote.booksMeta && typeof remote.booksMeta === 'object')
         ? Object.assign({}, booksMeta || {}, remote.booksMeta)
         : (booksMeta || {});
-      for (const ch of index){
-        const data = remote.chapters && remote.chapters[ch.id];
-        if (data) await storageSet('chapter:' + ch.id, data);
-      }
       await storageSet('chapters-index', index);
       await storageSet('books-meta', booksMeta);
     }
@@ -1811,6 +1816,9 @@
         failed.push(file.name);
         continue;
       }
+      if (syncKey) {
+        await pushChapterToRemote(id, { title, content: text });
+      }
       index.push({ id, title, book, volume, addedAt: Date.now() });
       addedCount++;
       // small pacing gap helps avoid rate-limit errors on large batches
@@ -1967,6 +1975,7 @@
     const data = await storageGet('chapter:' + id);
     if (data) {
       await storageSet('chapter:' + id, { ...data, title });
+      if (syncKey) await pushChapterToRemote(id, { ...data, title });
     }
     if (syncKey) await pushRemoteLibrary();
     render();
@@ -2020,6 +2029,7 @@
       const data = await storageGet('chapter:' + id);
       if (data) {
         await storageSet('chapter:' + id, { ...data, title });
+        if (syncKey) await pushChapterToRemote(id, { ...data, title });
       }
       
       if (syncKey) await pushRemoteLibrary();
@@ -2992,7 +3002,15 @@
     main.innerHTML = '<div style="padding:40px;color:var(--ink-soft);">Loading…</div>';
     if (!meta) { view.mode='library'; render(); return; }
 
-    const data = await storageGet('chapter:' + meta.id) || { title: meta.title, content: '(missing content)' };
+    let data = await storageGet('chapter:' + meta.id);
+    if (!data && syncKey) {
+      const remoteChapter = await loadChapterFromRemote(meta.id);
+      if (remoteChapter) {
+        await storageSet('chapter:' + meta.id, remoteChapter);
+        data = remoteChapter;
+      }
+    }
+    data = data || { title: meta.title, content: '(missing content)' };
     const progress = getProgress();
 
     const wrap = document.createElement('div');
