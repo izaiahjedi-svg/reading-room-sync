@@ -273,6 +273,18 @@
     background:var(--brass);
     border-radius:inherit;
   }
+  .volume-progress-wrap{
+    display:flex;
+    align-items:center;
+    gap:6px;
+    min-width:180px;
+  }
+  .volume-progress-label{
+    font-size:11px;
+    color:var(--ink-soft);
+    min-width:34px;
+    text-align:right;
+  }
   .chapter-row{
     display:flex; align-items:center; gap:14px;
     padding:13px 4px;
@@ -1068,7 +1080,7 @@
     clearTimeout(settingsSaveTimer);
     settingsSaveTimer = setTimeout(async () => {
       await persistProfileState();
-      if (syncKey) await pushRemoteLibrary();
+      if (syncKey) await pushRemoteLibrary({ progressOnly:true });
     }, 250);
   }
 
@@ -1121,11 +1133,14 @@
     return syncKey;
   }
 
-  async function buildLibraryPayload(){
+  async function buildLibraryPayload(options){
+    const progressOnly = !!(options && options.progressOnly);
     const chapters = {};
-    for (const ch of index){
-      const data = await storageGet('chapter:' + ch.id);
-      if (data) chapters[ch.id] = data;
+    if (!progressOnly) {
+      for (const ch of index){
+        const data = await storageGet('chapter:' + ch.id);
+        if (data) chapters[ch.id] = data;
+      }
     }
     const progress = getProgress();
     const settings = getSettings();
@@ -2603,8 +2618,9 @@
       }
       volumes.forEach((vol) => {
         const groupItems = items.filter(c => (c.volume || '') === vol);
-        const volumePct = groupItems.length
-          ? Math.round(groupItems.reduce((sum, ch) => sum + Math.max(0, Math.min(100, Math.round(getProgress().percents[ch.id] || 0))), 0) / groupItems.length)
+        const chapterProgresses = groupItems.map((ch) => Math.max(0, Math.min(100, Math.round(getProgress().percents[ch.id] || 0))));
+        const volumePct = chapterProgresses.length
+          ? Math.round(chapterProgresses.reduce((sum, pct) => sum + pct, 0) / chapterProgresses.length)
           : 0;
         const volDetails = document.createElement('details');
         volDetails.className = 'volume-group';
@@ -2612,7 +2628,10 @@
         const volSummary = document.createElement('summary');
         volSummary.innerHTML = `
           <span class="volume-summary-text">${esc(vol || 'Chapters')}</span>
-          <span class="volume-progress" aria-hidden="true"><span class="volume-progress-fill" style="width:${volumePct}%"></span></span>`;
+          <span class="volume-progress-wrap" aria-hidden="true">
+            <span class="volume-progress"><span class="volume-progress-fill" style="width:${volumePct}%"></span></span>
+            <span class="volume-progress-label">${volumePct}%</span>
+          </span>`;
         volDetails.appendChild(volSummary);
         const ul = document.createElement('ul');
         ul.className = 'chapter-list nested two-col';
@@ -2810,6 +2829,20 @@
 
     // scroll tracking
     const scroller = window;
+    let pendingScrollPct = null;
+    let pendingScrollTimer = null;
+    async function flushProgress(){
+      if (pendingScrollTimer) {
+        clearTimeout(pendingScrollTimer);
+        pendingScrollTimer = null;
+      }
+      if (pendingScrollPct === null || pendingScrollPct === undefined) return;
+      progress.lastChapterId = meta.id;
+      progress.percents[meta.id] = pendingScrollPct;
+      pendingScrollPct = null;
+      await persistProfileState();
+      if (syncKey) await pushRemoteLibrary({ progressOnly:true });
+    }
     function computePct(){
       const docHeight = document.documentElement.scrollHeight - window.innerHeight;
       if (docHeight <= 0) return 100;
@@ -2818,19 +2851,26 @@
     function onScroll(){
       const p = computePct();
       ribbon.textContent = Math.round(p) + '%';
+      pendingScrollPct = p;
       clearTimeout(saveTimer);
-      saveTimer = setTimeout(async () => {
-        progress.lastChapterId = meta.id;
-        progress.percents[meta.id] = p;
-        await persistProfileState();
-        if (syncKey) await pushRemoteLibrary();
+      saveTimer = setTimeout(() => {
+        pendingScrollTimer = null;
+        flushProgress().catch((e) => console.warn('Progress flush failed', e));
       }, 700);
+      pendingScrollTimer = saveTimer;
     }
     window.addEventListener('scroll', onScroll, { passive:true });
+    window.addEventListener('pagehide', flushProgress);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') flushProgress().catch(() => {});
+    });
     view._cleanupScroll = () => {
       window.removeEventListener('scroll', onScroll);
+      window.removeEventListener('pagehide', flushProgress);
       document.removeEventListener('keydown', onKeydown);
       if (typeof view._cleanupDrawer === 'function'){ view._cleanupDrawer(); view._cleanupDrawer = null; }
+      if (pendingScrollTimer) clearTimeout(pendingScrollTimer);
+      flushProgress().catch(() => {});
     };
 
     // restore scroll position on resume or normal open
@@ -2938,7 +2978,7 @@
       delete progress.percents[meta.id];
       if (progress.lastChapterId === meta.id) progress.lastChapterId = null;
       await persistProfileState();
-      if (syncKey) await pushRemoteLibrary();
+      if (syncKey) await pushRemoteLibrary({ progressOnly:true });
       window.scrollTo(0, 0);
       render();
     };
