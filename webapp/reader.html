@@ -761,14 +761,14 @@
   // ---------------------------------------------------------------
   async function storageGet(key){
     try{
-      const r = await window.storage.get(key, false);
+      const r = await window.storage.get(scopeLibraryKey(key), false);
       return r ? JSON.parse(r.value) : null;
     }catch(e){ return null; }
   }
   async function storageSet(key, value, attempts=3){
     for (let i=0; i<attempts; i++){
       try{
-        const r = await window.storage.set(key, JSON.stringify(value), false);
+        const r = await window.storage.set(scopeLibraryKey(key), JSON.stringify(value), false);
         if (r) return true;
       }catch(e){
         console.error('storage set failed (attempt ' + (i+1) + ')', key, e);
@@ -778,7 +778,7 @@
     return false;
   }
   async function storageDelete(key){
-    try{ await window.storage.delete(key, false); }catch(e){}
+    try{ await window.storage.delete(scopeLibraryKey(key), false); }catch(e){}
   }
 
   // ---------------------------------------------------------------
@@ -829,6 +829,46 @@
   let syncKey = '';
   const SYNC_KEY_STORAGE_KEY = 'reading-room:sync-key';
   const SYNC_ENDPOINT = '/api/library';
+
+  function getRouteBookSlug(){
+    const parts = window.location.pathname.split('/').filter(Boolean);
+    if (!parts.length || parts[parts.length - 1] !== 'reader.html') return '';
+    if (parts.length >= 3 && parts[parts.length - 3] === 'webapp') {
+      return decodeURIComponent(parts[parts.length - 2] || '').trim().toLowerCase();
+    }
+    if (parts.length === 2) {
+      return decodeURIComponent(parts[0] || '').trim().toLowerCase();
+    }
+    return '';
+  }
+
+  const routeBookSlug = getRouteBookSlug();
+
+  function isLibraryScopedKey(key){
+    return key === 'chapters-index' || key === 'books-meta' || key.startsWith('chapter:');
+  }
+
+  function scopeLibraryKey(key){
+    if (!routeBookSlug || !isLibraryScopedKey(key)) return key;
+    return 'book:' + routeBookSlug + ':' + key;
+  }
+
+  function slugifyBookName(name){
+    return (name || '')
+      .toString()
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+  }
+
+  function buildBookReaderPath(bookName){
+    const slug = slugifyBookName(bookName);
+    const search = window.location.search || '';
+    const parts = window.location.pathname.split('/').filter(Boolean);
+    if (parts[0] === 'webapp') return '/webapp/' + slug + '/reader.html' + search;
+    return '/' + slug + '/reader.html' + search;
+  }
 
   function esc(s){
     const d = document.createElement('div');
@@ -985,6 +1025,7 @@
     try {
       const url = new URL(SYNC_ENDPOINT, window.location.origin);
       url.searchParams.set('key', syncKey);
+      if (routeBookSlug) url.searchParams.set('book', routeBookSlug);
       const res = await fetch(url.toString());
       if (!res.ok) return null;
       const payload = await res.json();
@@ -1003,7 +1044,11 @@
       const payload = await buildLibraryPayload();
       const res = await fetch(SYNC_ENDPOINT, {
         method:'POST',
-        headers:{'Content-Type':'application/json', 'x-sync-key': syncKey},
+        headers:{
+          'Content-Type':'application/json',
+          'x-sync-key': syncKey,
+          ...(routeBookSlug ? { 'x-book-slug': routeBookSlug } : {}),
+        },
         body: JSON.stringify(payload)
       });
       syncStatus = {
@@ -1085,6 +1130,7 @@
       }
     });
     activeProfileId = 'izaiah';
+    if (routeBookSlug) view.booksCollapsed = true;
     setSyncKey(getSyncKeyFromUrl() || getStoredSyncKey());
     if (syncKey) {
       await syncFromRemote();
@@ -1657,11 +1703,13 @@
 
       const metaWrap = document.createElement('div');
       metaWrap.className = 'book-meta';
+      const bookPath = buildBookReaderPath(bookName);
+      const isCurrentBookRoute = !!routeBookSlug && routeBookSlug === slugifyBookName(bookName);
       metaWrap.innerHTML = `
         <div class="book-title">${esc(getBookLabel(bookName))}</div>
         <div class="book-sub">${chaptersInBook.length} chapter${chaptersInBook.length === 1 ? '' : 's'}</div>
         <div class="book-actions">
-          <button type="button" class="book-open-btn">${view.bookFilter === bookName ? 'Showing' : 'Open'}</button>
+          <button type="button" class="book-open-btn">${isCurrentBookRoute ? 'Showing' : 'Open'}</button>
           <button type="button" class="book-manage-btn">Edit</button>
         </div>`;
       card.appendChild(metaWrap);
@@ -1669,9 +1717,9 @@
       const openBtn = metaWrap.querySelector('.book-open-btn');
       const manageBtn = metaWrap.querySelector('.book-manage-btn');
       openBtn.onclick = () => {
-        view.bookFilter = (view.bookFilter === bookName) ? '' : bookName;
-        render();
+        if (!isCurrentBookRoute) window.location.href = bookPath;
       };
+      if (isCurrentBookRoute) openBtn.disabled = true;
       manageBtn.onclick = () => openBookManager(bookName);
       grid.appendChild(card);
     });

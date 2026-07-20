@@ -15,6 +15,81 @@ if (!fs.existsSync(keyDir)) fs.mkdirSync(keyDir, { recursive: true });
 app.use(express.json({ limit: '40mb' }));
 app.use(express.static(__dirname));
 
+function slugifyBookName(name) {
+  return (name || '')
+    .toString()
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+function matchesBookSlug(bookName, slug) {
+  return !!slug && slugifyBookName(bookName) === slug;
+}
+
+function emptyLibrarySlice(baseData) {
+  return {
+    version: (baseData && baseData.version) || 1,
+    exportedAt: (baseData && baseData.exportedAt) || Date.now(),
+    index: [],
+    chapters: {},
+    progress: (baseData && baseData.progress) || { lastChapterId: null, percents: {} },
+    settings: (baseData && baseData.settings) || {},
+    booksMeta: {},
+  };
+}
+
+function sliceLibraryByBook(data, slug) {
+  if (!data || !slug) return data || null;
+  const slice = emptyLibrarySlice(data);
+  const index = Array.isArray(data.index) ? data.index : [];
+  const matching = index.filter((entry) => matchesBookSlug(entry && entry.book, slug));
+  slice.index = matching;
+  for (const entry of matching) {
+    if (data.chapters && data.chapters[entry.id]) {
+      slice.chapters[entry.id] = data.chapters[entry.id];
+    }
+  }
+  const meta = data.booksMeta || {};
+  for (const key of Object.keys(meta)) {
+    if (matchesBookSlug(key, slug)) slice.booksMeta[key] = meta[key];
+  }
+  return slice;
+}
+
+function mergeBookSlice(existing, incoming, slug) {
+  const base = existing && typeof existing === 'object' ? existing : {};
+  const next = {
+    version: incoming && incoming.version ? incoming.version : (base.version || 1),
+    exportedAt: incoming && incoming.exportedAt ? incoming.exportedAt : Date.now(),
+    index: Array.isArray(base.index) ? [...base.index] : [],
+    chapters: Object.assign({}, base.chapters || {}),
+    progress: incoming && incoming.progress ? incoming.progress : (base.progress || { lastChapterId: null, percents: {} }),
+    settings: incoming && incoming.settings ? incoming.settings : (base.settings || {}),
+    booksMeta: Object.assign({}, base.booksMeta || {}),
+  };
+
+  const removeIds = new Set();
+  next.index = next.index.filter((entry) => {
+    if (matchesBookSlug(entry && entry.book, slug)) {
+      if (entry && entry.id) removeIds.add(entry.id);
+      return false;
+    }
+    return true;
+  });
+  for (const id of removeIds) delete next.chapters[id];
+  for (const key of Object.keys(next.booksMeta)) {
+    if (matchesBookSlug(key, slug)) delete next.booksMeta[key];
+  }
+
+  const incomingIndex = Array.isArray(incoming && incoming.index) ? incoming.index : [];
+  next.index.push(...incomingIndex);
+  Object.assign(next.chapters, (incoming && incoming.chapters) || {});
+  Object.assign(next.booksMeta, (incoming && incoming.booksMeta) || {});
+  return next;
+}
+
 function keyFilePath(key) {
   const digest = crypto.createHash('sha256').update(key).digest('hex');
   return path.join(keyDir, digest + '.json');
@@ -55,6 +130,7 @@ function readLegacyValue(key) {
 
 app.get('/api/library', (req, res) => {
   const key = (req.query.key || '').trim();
+  const bookSlug = (req.query.book || '').trim().toLowerCase();
   if (!key) return res.status(400).json({ error: 'Missing sync key' });
 
   let data = readKeyData(key);
@@ -65,14 +141,26 @@ app.get('/api/library', (req, res) => {
       data = legacy;
     }
   }
+  if (bookSlug) return res.json({ data: sliceLibraryByBook(data, bookSlug) });
   res.json({ data: data || null });
 });
 
 app.post('/api/library', (req, res) => {
   const key = (req.headers['x-sync-key'] || '').toString().trim();
+  const bookSlug = (req.headers['x-book-slug'] || '').toString().trim().toLowerCase();
   if (!key) return res.status(400).json({ error: 'Missing sync key' });
+  if (bookSlug) {
+    const existing = readKeyData(key) || readLegacyValue(key) || {};
+    const merged = mergeBookSlice(existing, req.body || {}, bookSlug);
+    writeKeyData(key, merged);
+    return res.json({ ok: true, scoped: true });
+  }
   writeKeyData(key, req.body || {});
   res.json({ ok: true });
+});
+
+app.get('/webapp/:bookSlug/reader.html', (req, res) => {
+  res.sendFile(path.join(__dirname, 'webapp', 'reader.html'));
 });
 
 app.listen(port, () => {
