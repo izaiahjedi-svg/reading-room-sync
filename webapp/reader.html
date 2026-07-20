@@ -834,6 +834,10 @@
     andrew: { 
       progress: { lastChapterId:null, percents:{} },
       settings: { font:'Georgia, "Iowan Old Style", serif', fontSize:19, lineHeight:1.7, theme:'dark' }
+    },
+    david: {
+      progress: { lastChapterId:null, percents:{} },
+      settings: { font:'Georgia, "Iowan Old Style", serif', fontSize:19, lineHeight:1.7, theme:'dark' }
     }
   };
   let view = { mode:'library', chapterId:null, search:'', bookFilter:'', chapterSort:'book-volume-added', booksCollapsed:false };
@@ -967,7 +971,8 @@
   function getDefaultProfiles(){
     return {
       izaiah: { name:'Izaiah', settings:getDefaultProfileSettings() },
-      andrew: { name:'Andrew', settings:getDefaultProfileSettings() }
+      andrew: { name:'Andrew', settings:getDefaultProfileSettings() },
+      david: { name:'David', settings:getDefaultProfileSettings() }
     };
   }
 
