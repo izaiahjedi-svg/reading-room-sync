@@ -2051,6 +2051,15 @@
     }
 
     if (!isBookPage){
+      const toolrow = document.createElement('div');
+      toolrow.className = 'toolrow';
+      toolrow.innerHTML = `
+        <div class="inline-actions">
+          <button type="button" id="manageBooksRootBtn">Manage books</button>
+        </div>`;
+      toolrow.querySelector('#manageBooksRootBtn').onclick = () => openBookManager(view.bookFilter || '');
+      wrap.appendChild(toolrow);
+
       renderBookGrid(wrap, index);
       if (view.transferOpen){
         const panel = document.createElement('div');
@@ -2080,6 +2089,10 @@
     const currentBook = routeBookName || (index[0] && index[0].book) || '';
     const currentMeta = booksMeta[currentBook] || {};
     const currentItems = index.filter(c => (c.book || '').trim() === currentBook);
+    const progress = getProgress();
+    const lastReadInBook = progress.lastChapterId
+      ? currentItems.find(c => c.id === progress.lastChapterId)
+      : null;
     const header = document.createElement('div');
     header.className = 'book-page-header';
     const coverHtml = currentMeta.coverDataUrl
@@ -2100,6 +2113,21 @@
     header.querySelector('#bookPageSettingsBtn').onclick = () => openBookManager(currentBook || '__new__');
     header.querySelector('#bookPageAddBtn').onclick = () => startAddChapterToBook(currentBook || '');
     header.querySelector('#bookPageBackBtn').onclick = () => { window.location.href = getMainLibraryPath(); };
+
+    if (lastReadInBook){
+      const pct = Math.round(progress.percents[lastReadInBook.id] || 0);
+      const card = document.createElement('div');
+      card.className = 'continue-card';
+      card.innerHTML = `
+        <div>
+          <div class="label">Continue reading</div>
+          <div class="title">${esc(lastReadInBook.title)}</div>
+          <div class="pct">${pct}% through this chapter</div>
+        </div>
+        <button class="primary">Resume →</button>`;
+      card.querySelector('button').onclick = () => openChapter(lastReadInBook.id, true);
+      wrap.appendChild(card);
+    }
 
     const toolrow = document.createElement('div');
     toolrow.className = 'toolrow';
