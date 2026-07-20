@@ -3,10 +3,6 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-<meta http-equiv="refresh" content="0; url=./webapp/reader.html" />
-<script>
-  window.location.replace('./webapp/reader.html' + window.location.search + window.location.hash);
-</script>
 <title>Reading Room</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -24,6 +20,7 @@
     --shadow: 0 2px 10px rgba(38,34,29,0.08);
     --radius: 3px;
     --ribbon: var(--brass);
+    --book-folder-bg:#e2dac8;
   }
   [data-theme="dark"]{
     --paper:#1B1B18;
@@ -34,6 +31,7 @@
     --brass:#c69a5f;
     --brass-soft:#9C6B30;
     --shadow: 0 2px 14px rgba(0,0,0,0.4);
+    --book-folder-bg:#2d2b25;
   }
   [data-theme="sepia"]{
     --paper:#E9DCC3;
@@ -42,6 +40,7 @@
     --ink-soft:#7a6a4d;
     --line:#d3c19c;
     --brass:#8a5a2b;
+    --book-folder-bg:#ddccaa;
   }
   *{box-sizing:border-box;}
   html,body{height:100%;}
@@ -99,8 +98,11 @@
     background:linear-gradient(160deg, var(--brass), var(--brass-soft));
     flex:none;
   }
-  .topbar-actions{ display:flex; gap:8px; align-items:center; }
-
+  .topbar-actions{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .sync-chip{ font-size:12px; }
+  .sync-chip.syncing{ color:var(--ink-soft); }
+  .sync-chip.synced{ color:#2f8f4e; }
+  .sync-chip.failed{ color:var(--danger); }
   .version-badge{
     position:fixed;
     right:12px;
@@ -119,6 +121,18 @@
     backdrop-filter:blur(6px);
   }
   [data-theme="dark"] .version-badge{ background:rgba(27,27,24,0.82); }
+  .profile-switcher{ display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+  .profile-chip{ padding:6px 10px; border-radius:999px; font-size:12px; }
+  .profile-chip.active{ background:var(--brass); color:#fff; border-color:var(--brass); }
+  .profile-select{
+    min-width:120px;
+    padding:7px 10px;
+    border:1px solid var(--line);
+    border-radius:999px;
+    background:var(--paper-raised);
+    color:var(--ink);
+    font-size:12px;
+  }
 
   main{ flex:1; width:100%; }
 
@@ -142,25 +156,154 @@
   .toolrow{
     display:flex; gap:10px; align-items:center; margin-bottom:18px; flex-wrap:wrap;
   }
+  .toolrow .inline-actions{ display:flex; gap:8px; flex-wrap:wrap; }
   .search-input{
     flex:1; min-width:160px;
     padding:9px 12px; border:1px solid var(--line); border-radius:var(--radius);
     background:var(--paper-raised); color:var(--ink); font-size:14px;
   }
   #fileInput{ display:none; }
+  #folderInput{ display:none; }
+  #importInput{ display:none; }
+  #coverInput{ display:none; }
+
+  .add-modal-note{
+    font-size:12px;
+    color:var(--ink-soft);
+    margin-top:4px;
+  }
+
+  .book-grid{
+    display:grid;
+    grid-template-columns:repeat(auto-fill,minmax(150px,1fr));
+    gap:12px;
+    margin-bottom:20px;
+  }
+  .book-card{
+    border:1px solid var(--line);
+    border-radius:6px;
+    background:var(--paper-raised);
+    overflow:hidden;
+    box-shadow:var(--shadow);
+    display:flex;
+    flex-direction:column;
+  }
+  .book-cover{
+    width:100%;
+    aspect-ratio:3 / 4;
+    object-fit:cover;
+    background:linear-gradient(135deg, var(--paper), var(--paper-raised));
+  }
+  .book-cover-fallback{
+    width:100%;
+    aspect-ratio:3 / 4;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    font-size:32px;
+    color:var(--ink-soft);
+    background:linear-gradient(135deg, var(--paper), var(--paper-raised));
+  }
+  .book-meta{ padding:10px; }
+  .book-title{
+    font-size:13px;
+    font-weight:600;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    margin-bottom:8px;
+  }
+  .book-sub{ font-size:11px; color:var(--ink-soft); margin-bottom:10px; }
+  .book-actions{ display:flex; gap:6px; }
+  .book-actions button{ flex:1; padding:6px 8px; font-size:12px; }
+
+  .book-page-header{
+    border:1px solid var(--line);
+    border-radius:6px;
+    background:var(--paper-raised);
+    box-shadow:var(--shadow);
+    padding:12px;
+    margin-bottom:14px;
+    display:flex;
+    gap:12px;
+    align-items:flex-start;
+  }
+  .book-page-cover,
+  .book-page-cover-fallback{
+    width:96px;
+    aspect-ratio:3 / 4;
+    border-radius:4px;
+    border:1px solid var(--line);
+    background:linear-gradient(135deg, var(--paper), var(--paper-raised));
+    flex:none;
+  }
+  .book-page-cover{ object-fit:cover; }
+  .book-page-cover-fallback{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    font-size:14px;
+    color:var(--ink-soft);
+  }
+  .book-page-meta{ min-width:0; flex:1; }
+  .book-page-title{ font-size:18px; font-weight:700; margin-bottom:4px; }
+  .book-page-sub{ font-size:12px; color:var(--ink-soft); margin-bottom:10px; }
+  .book-page-actions{ display:flex; gap:8px; flex-wrap:wrap; }
 
   .chapter-list{ list-style:none; margin:0; padding:0; border-top:1px solid var(--line); }
+  .chapter-list.two-col{
+    display:grid;
+    grid-template-columns:repeat(2, minmax(0, 1fr));
+    gap:0 14px;
+  }
   .chapter-list.nested{ border-top:none; }
   .volume-group{ border-top:1px solid var(--line); }
+  .book-group{ border-top:none; margin-top:10px; }
+  .book-group > summary{
+    background:var(--book-folder-bg);
+    color:var(--ink);
+    border:1px solid var(--line);
+    border-radius:4px;
+    padding:10px 10px;
+  }
   .volume-group summary{
     padding:12px 4px; cursor:pointer; font-size:12px; font-weight:600;
     text-transform:uppercase; letter-spacing:.08em; color:var(--ink-soft);
     list-style:none; display:flex; align-items:center; gap:8px;
+    flex-wrap:wrap;
   }
   .volume-group summary::-webkit-details-marker{ display:none; }
   .volume-group summary::before{ content:'▸'; font-size:10px; }
   .volume-group[open] summary::before{ content:'▾'; }
   .volume-group .chapter-list{ padding-left:6px; }
+  .volume-summary-text{ flex:1; min-width:120px; }
+  .volume-progress{
+    flex:none;
+    width:min(160px, 100%);
+    height:6px;
+    border-radius:999px;
+    background:var(--line);
+    overflow:hidden;
+    border:1px solid color-mix(in srgb, var(--line) 60%, transparent);
+  }
+  .volume-progress-fill{
+    display:block;
+    height:100%;
+    background:var(--brass);
+    border-radius:inherit;
+  }
+  .volume-progress-wrap{
+    display:flex;
+    align-items:center;
+    gap:6px;
+    min-width:180px;
+  }
+  .volume-progress-label{
+    font-size:11px;
+    color:var(--ink-soft);
+    min-width:34px;
+    text-align:right;
+  }
   .chapter-row{
     display:flex; align-items:center; gap:14px;
     padding:13px 4px;
@@ -168,10 +311,6 @@
     cursor:pointer;
   }
   .chapter-row:hover{ background:var(--paper-raised); }
-  .chapter-num{
-    flex:none; width:44px; text-align:right;
-    font-size:12px; color:var(--ink-soft); font-variant-numeric:tabular-nums;
-  }
   .chapter-main{ flex:1; min-width:0; }
   .chapter-title{
     font-size:15px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
@@ -185,6 +324,59 @@
     flex:none; opacity:0; transition:opacity .15s;
   }
   .chapter-row:hover .chapter-del{ opacity:1; }
+
+  /* ---------- Edit Modal ---------- */
+  .modal-backdrop{
+    position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:60; display:none;
+  }
+  .modal-backdrop.open{ display:block; }
+  .modal-dialog{
+    position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); z-index:70;
+    background:var(--paper-raised); border:1px solid var(--line); border-radius:6px;
+    padding:20px; max-width:420px; width:90%; box-shadow:var(--shadow);
+    display:none;
+  }
+  .modal-dialog.open{ display:block; }
+  .modal-dialog h3{ margin:0 0 14px; font-size:16px; }
+  .modal-dialog .form-group{
+    margin-bottom:12px; display:flex; flex-direction:column; gap:4px;
+  }
+  .modal-dialog label{ font-size:12px; color:var(--ink-soft); text-transform:uppercase; letter-spacing:.06em; }
+  .modal-dialog input{
+    padding:9px 12px; border:1px solid var(--line); border-radius:var(--radius);
+    background:var(--paper); color:var(--ink); font-size:14px;
+  }
+  .modal-dialog select{
+    padding:9px 12px; border:1px solid var(--line); border-radius:var(--radius);
+    background:var(--paper); color:var(--ink); font-size:14px;
+  }
+  .cover-preview{
+    width:100%;
+    max-width:180px;
+    aspect-ratio:3 / 4;
+    object-fit:cover;
+    border:1px solid var(--line);
+    border-radius:6px;
+    background:var(--paper);
+  }
+  .cover-placeholder{
+    width:100%;
+    max-width:180px;
+    aspect-ratio:3 / 4;
+    border:1px dashed var(--line);
+    border-radius:6px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    color:var(--ink-soft);
+    font-size:12px;
+    text-align:center;
+    padding:12px;
+  }
+  .modal-dialog .button-group{
+    display:flex; gap:8px; justify-content:flex-end; margin-top:16px;
+  }
+  .modal-dialog button{ margin:0; }
 
   .empty-state{
     text-align:center; padding:70px 20px; color:var(--ink-soft);
@@ -267,10 +459,53 @@
   }
 
   @media (max-width:520px){
-    .topbar{ padding:10px 14px; }
-    .reader-toolbar{ padding:8px 12px; gap:10px; }
+    .topbar{
+      padding:10px 12px;
+      align-items:flex-start;
+      flex-wrap:wrap;
+    }
+    .brand{ font-size:14px; }
+    .topbar-actions{
+      width:100%;
+      gap:6px;
+      overflow-x:auto;
+      flex-wrap:nowrap;
+      padding-bottom:2px;
+    }
+    .topbar-actions button{ white-space:nowrap; }
+    .library-wrap{ padding:14px 12px 42px; }
+    .continue-card{ padding:12px 14px; margin-bottom:16px; }
+    .toolrow{ gap:8px; align-items:stretch; }
+    .toolrow .inline-actions{ width:100%; }
+    .toolrow .inline-actions button{ flex:1; }
+    .book-grid{ grid-template-columns:repeat(2, minmax(0, 1fr)); gap:10px; }
+    .book-title{ white-space:normal; }
+    .book-page-header{ padding:10px; gap:10px; }
+    .book-page-cover,
+    .book-page-cover-fallback{ width:78px; }
+    .book-page-title{ font-size:16px; }
+    .chapter-row{ gap:10px; padding:10px 4px; }
+    .chapter-del{ opacity:1; }
+    .reader-shell{ padding:0 12px 84px; }
+    .reader-toolbar{
+      padding:8px 12px;
+      gap:8px;
+      align-items:stretch;
+    }
+    .reader-toolbar .grp{
+      width:100%;
+      justify-content:space-between;
+      flex-wrap:wrap;
+    }
+    .reader-toolbar select{ width:100%; }
+    .stepper{ width:100%; justify-content:space-between; }
+    .chapter-heading{ padding-top:24px; }
+    .chapter-heading h1{ font-size:22px; }
     .ribbon{ right:14px; }
     .reader-nav .center-btn{ display:none; }
+  }
+  @media (max-width:760px){
+    .chapter-list.two-col{ grid-template-columns:1fr; }
   }
 </style>
 </head>
@@ -288,6 +523,96 @@
   <input type="file" id="fileInput" accept=".txt" multiple />
   <input type="file" id="folderInput" webkitdirectory directory multiple />
   <input type="file" id="importInput" accept=".json,application/json" />
+  <input type="file" id="coverInput" accept="image/*" />
+
+  <div class="modal-backdrop" id="editModalBackdrop"></div>
+  <div class="modal-dialog" id="editModal">
+    <h3>Edit Chapter</h3>
+    <div class="form-group">
+      <label for="editBook">Book</label>
+      <input type="text" id="editBook" placeholder="e.g., Harry Potter" />
+    </div>
+    <div class="form-group">
+      <label for="editVolume">Volume</label>
+      <input type="text" id="editVolume" placeholder="e.g., Volume 1" />
+    </div>
+    <div class="form-group">
+      <label for="editTitle">Chapter Title</label>
+      <input type="text" id="editTitle" placeholder="e.g., The Boy Who Lived" />
+    </div>
+    <div class="button-group">
+      <button id="editModalCancelBtn">Cancel</button>
+      <button class="primary" id="editModalSaveBtn">Save</button>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="bookModalBackdrop"></div>
+  <div class="modal-dialog" id="bookModal">
+    <h3>Manage Book</h3>
+    <div class="form-group">
+      <label for="bookPicker">Book</label>
+      <select id="bookPicker"></select>
+    </div>
+    <div class="form-group">
+      <label for="bookTitleInput">Book Title</label>
+      <input type="text" id="bookTitleInput" placeholder="e.g., My Book" />
+    </div>
+    <div class="form-group">
+      <label>Cover</label>
+      <div id="bookCoverPreviewWrap"></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+        <button id="bookPickCoverBtn" type="button">Upload cover</button>
+        <button id="bookClearCoverBtn" type="button">Remove cover</button>
+      </div>
+    </div>
+    <div class="form-group">
+      <label for="bookSortSelect">Chapter Sort</label>
+      <select id="bookSortSelect">
+        <option value="book-volume-added">Book/Volume/Added</option>
+        <option value="book-volume-title">Book/Volume/Title</option>
+        <option value="title">Title A-Z</option>
+        <option value="recent">Recently Added</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label for="volumeRenameFromSelect">Rename Volume Folder</label>
+      <select id="volumeRenameFromSelect"></select>
+      <input type="text" id="volumeRenameToInput" placeholder="New volume name" />
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+        <button id="renameVolumeBtn" type="button">Rename volume</button>
+      </div>
+    </div>
+    <div class="button-group" style="justify-content:space-between;">
+      <button id="bookUploadChaptersBtn" type="button">+ Add Chapters</button>
+      <div style="display:flex;gap:8px;">
+        <button id="bookDeleteBtn" type="button">Delete book</button>
+        <button id="bookModalCancelBtn" type="button">Close</button>
+        <button class="primary" id="bookModalSaveBtn" type="button">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="addModalBackdrop"></div>
+  <div class="modal-dialog" id="addModal">
+    <h3>Add Chapters</h3>
+    <div class="form-group">
+      <label for="addBookSelect">Book Destination</label>
+      <select id="addBookSelect"></select>
+      <input type="text" id="addBookNewInput" placeholder="New book name" />
+      <div class="add-modal-note">Pick an existing book or create a new one.</div>
+    </div>
+    <div class="form-group">
+      <label for="addVolumeInput">Volume (optional)</label>
+      <input type="text" id="addVolumeInput" placeholder="e.g., Volume 3" />
+    </div>
+    <div class="button-group" style="justify-content:space-between;">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button id="addChooseFilesBtn" type="button">Choose files</button>
+        <button id="addChooseFolderBtn" type="button">Choose folder</button>
+      </div>
+      <button id="addModalCloseBtn" type="button">Close</button>
+    </div>
+  </div>
 </div>
 
 <div class="version-badge">v0.1</div>
@@ -532,14 +857,14 @@
   // ---------------------------------------------------------------
   async function storageGet(key){
     try{
-      const r = await window.storage.get(key, false);
+      const r = await window.storage.get(scopeLibraryKey(key), false);
       return r ? JSON.parse(r.value) : null;
     }catch(e){ return null; }
   }
   async function storageSet(key, value, attempts=3){
     for (let i=0; i<attempts; i++){
       try{
-        const r = await window.storage.set(key, JSON.stringify(value), false);
+        const r = await window.storage.set(scopeLibraryKey(key), JSON.stringify(value), false);
         if (r) return true;
       }catch(e){
         console.error('storage set failed (attempt ' + (i+1) + ')', key, e);
@@ -549,17 +874,56 @@
     return false;
   }
   async function storageDelete(key){
-    try{ await window.storage.delete(key, false); }catch(e){}
+    try{ await window.storage.delete(scopeLibraryKey(key), false); }catch(e){}
   }
 
   // ---------------------------------------------------------------
   // State
   // ---------------------------------------------------------------
-  let index = [];              // [{id, title, num, addedAt}]
-  let progress = { lastChapterId:null, percents:{} };
-  let settings = { font:'Georgia, "Iowan Old Style", serif', fontSize:19, lineHeight:1.7, theme:'light' };
-  let view = { mode:'library', chapterId:null, search:'' };
+  let index = [];              // [{id, title, book, volume, addedAt}] - SHARED across profiles
+  let booksMeta = {};          // { [bookName]: { title, coverDataUrl } }
+  let activeProfileId = 'izaiah';
+  let profiles = getDefaultProfiles();
+  // Per-profile state: each profile has its own progress and settings
+  let profileState = {
+    izaiah: { 
+      progress: { lastChapterId:null, percents:{} },
+      settings: { font:'Georgia, "Iowan Old Style", serif', fontSize:19, lineHeight:1.7, theme:'dark' }
+    },
+    andrew: { 
+      progress: { lastChapterId:null, percents:{} },
+      settings: { font:'Georgia, "Iowan Old Style", serif', fontSize:19, lineHeight:1.7, theme:'dark' }
+    },
+    david: {
+      progress: { lastChapterId:null, percents:{} },
+      settings: { font:'Georgia, "Iowan Old Style", serif', fontSize:19, lineHeight:1.7, theme:'dark' }
+    }
+  };
+  let view = { mode:'library', chapterId:null, search:'', bookFilter:'', chapterSort:'book-volume-added', booksCollapsed:false, debugOpen:false };
   let saveTimer = null;
+  let settingsSaveTimer = null;
+  let pendingChapterTitle = '';
+  let pendingUploadBook = '';
+  let pendingUploadVolume = '';
+  let remoteSyncPrimed = false;
+  let syncInFlight = false;
+  let syncPending = false;
+  let syncPendingReplace = false;
+  let lastSyncedPayloadSig = '';
+  let syncDebug = {
+    attempts: 0,
+    successes: 0,
+    failures: 0,
+    lastReason: '',
+    lastError: '',
+    lastPayloadBytes: 0,
+    lastDurationMs: 0,
+    lastAt: 0,
+    recoveryAttempts: 0,
+  };
+  let mainPageDebug = { loading:false, data:null, error:'' };
+  let pendingCoverDataUrl = null;
+  let syncStatus = { state:'idle', at:0, message:'' };
 
   const FONT_OPTIONS = [
     { label:'Serif (Georgia)', value:'Georgia, "Iowan Old Style", serif' },
@@ -578,9 +942,102 @@
   const fileInput = document.getElementById('fileInput');
   const folderInput = document.getElementById('folderInput');
   const importInput = document.getElementById('importInput');
+  const coverInput = document.getElementById('coverInput');
   let syncKey = '';
   const SYNC_KEY_STORAGE_KEY = 'reading-room:sync-key';
   const SYNC_ENDPOINT = '/api/library';
+  const STATE_ENDPOINT = '/api/state';
+  const COVER_ENDPOINT = '/api/cover';
+  const CHAPTER_ENDPOINT = '/api/chapter';
+
+  function getRouteBookSlug(){
+    const parts = window.location.pathname.split('/').filter(Boolean);
+    if (!parts.length || parts[parts.length - 1] !== 'reader.html') return '';
+    if (parts.length === 2) {
+      return decodeURIComponent(parts[0] || '').trim().toLowerCase();
+    }
+    return '';
+  }
+
+  const routeBookSlug = getRouteBookSlug();
+
+  function isSharedLibraryKey(key){
+    return key === 'chapters-index' || key === 'books-meta' || key.startsWith('chapter:');
+  }
+
+  function scopeLibraryKey(key){
+    return key;
+  }
+
+  async function getScopedStorageValue(key, scopeSlug){
+    if (!scopeSlug || !isSharedLibraryKey(key)) return null;
+    try {
+      const raw = await window.storage.get('book:' + scopeSlug + ':' + key, false);
+      return raw ? JSON.parse(raw.value) : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  async function migrateScopedLibraryToGlobal(scopeSlug){
+    if (!scopeSlug) return;
+    const existingGlobalIndex = await storageGet('chapters-index');
+    if (Array.isArray(existingGlobalIndex) && existingGlobalIndex.length) return;
+
+    const scopedIndex = await getScopedStorageValue('chapters-index', scopeSlug);
+    if (!Array.isArray(scopedIndex) || !scopedIndex.length) return;
+
+    const scopedBooksMeta = await getScopedStorageValue('books-meta', scopeSlug);
+    const scopedProfiles = await getScopedStorageValue('profiles-data', scopeSlug);
+    const scopedProfileState = await getScopedStorageValue('profile-state', scopeSlug);
+    const scopedProgress = await getScopedStorageValue('progress', scopeSlug);
+    const scopedSettings = await getScopedStorageValue('settings', scopeSlug);
+
+    await storageSet('chapters-index', scopedIndex);
+    if (scopedBooksMeta && typeof scopedBooksMeta === 'object') await storageSet('books-meta', scopedBooksMeta);
+    if (scopedProfiles && typeof scopedProfiles === 'object') await storageSet('profiles-data', scopedProfiles);
+    if (scopedProfileState && typeof scopedProfileState === 'object') await storageSet('profile-state', scopedProfileState);
+    if (scopedProgress && typeof scopedProgress === 'object') await storageSet('progress', scopedProgress);
+    if (scopedSettings && typeof scopedSettings === 'object') await storageSet('settings', scopedSettings);
+
+    for (const entry of scopedIndex) {
+      if (!entry || !entry.id) continue;
+      const chapter = await getScopedStorageValue('chapter:' + entry.id, scopeSlug);
+      if (chapter) await storageSet('chapter:' + entry.id, chapter);
+    }
+  }
+
+  function slugifyBookName(name){
+    return (name || '')
+      .toString()
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+  }
+
+  function buildBookReaderPath(bookName){
+    const slug = slugifyBookName(bookName);
+    const search = window.location.search || '';
+    return '/' + slug + '/reader.html' + search;
+  }
+
+  function getMainLibraryPath(){
+    const search = window.location.search || '';
+    return '/reader.html' + search;
+  }
+
+  function getRouteBookName(){
+    if (!routeBookSlug) return '';
+    const books = getAllBookNames();
+    const matched = books.find((name) => slugifyBookName(name) === routeBookSlug);
+    if (matched) return matched;
+    return routeBookSlug
+      .split('-')
+      .filter(Boolean)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(' ');
+  }
 
   function esc(s){
     const d = document.createElement('div');
@@ -588,8 +1045,129 @@
     return d.innerHTML;
   }
 
+  function formatSyncTime(ts){
+    if (!ts) return '';
+    try {
+      return new Date(ts).toLocaleTimeString([], { hour:'numeric', minute:'2-digit' });
+    } catch (e) {
+      return '';
+    }
+  }
+
+  function formatBytes(bytes){
+    const n = Number(bytes) || 0;
+    if (n < 1024) return n + ' B';
+    if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+    return (n / (1024 * 1024)).toFixed(2) + ' MB';
+  }
+
+  function getSyncStatusText(){
+    if (!syncKey) return 'Local only';
+    if (syncStatus.state === 'syncing') return 'Syncing...';
+    if (syncStatus.state === 'failed') return syncStatus.message || 'Sync failed';
+    if (syncStatus.state === 'synced') {
+      const at = formatSyncTime(syncStatus.at);
+      return at ? ('Synced ' + at) : 'Synced';
+    }
+    return 'Sync ready';
+  }
+
+  function updateSyncStatusChip(){
+    const chip = document.getElementById('syncStatusChip');
+    if (!chip) return;
+    chip.className = 'subtle sync-chip ' + (syncStatus.state || 'idle');
+    chip.textContent = getSyncStatusText();
+    chip.title = syncStatus.message || 'Sync status';
+  }
+
+  function getDefaultProfileSettings(){
+    return { font:'Georgia, "Iowan Old Style", serif', fontSize:19, lineHeight:1.7, theme:'dark' };
+  }
+
+  function getDefaultProfiles(){
+    return {
+      izaiah: { name:'Izaiah', settings:getDefaultProfileSettings() },
+      andrew: { name:'Andrew', settings:getDefaultProfileSettings() },
+      david: { name:'David', settings:getDefaultProfileSettings() }
+    };
+  }
+
+  function getActiveProfile(){
+    return profiles[activeProfileId] || profiles.izaiah || { name:'Profile' };
+  }
+
+  function getActiveProfileState(){
+    if (!profileState[activeProfileId]) {
+      profileState[activeProfileId] = {
+        progress: { lastChapterId:null, percents:{} },
+        settings: getDefaultProfileSettings()
+      };
+    }
+    return profileState[activeProfileId];
+  }
+
+  function getProgress(){
+    return getActiveProfileState().progress;
+  }
+
+  function getSettings(){
+    return getActiveProfileState().settings;
+  }
+
   function applyTheme(){
-    document.body.setAttribute('data-theme', settings.theme);
+    const settings = getSettings();
+    const theme = settings.theme || 'dark';
+    document.body.setAttribute('data-theme', theme);
+    document.documentElement.style.colorScheme = theme === 'dark' ? 'dark' : 'light';
+  }
+
+  async function persistProfileState(){
+    await storageSet('profiles-data', profiles);
+    await storageSet('profile-state', profileState);
+  }
+
+  async function persistBooksMeta(){
+    await storageSet('books-meta', booksMeta);
+  }
+
+  function scheduleSettingsPersist(){
+    clearTimeout(settingsSaveTimer);
+    settingsSaveTimer = setTimeout(async () => {
+      await persistProfileState();
+      if (syncKey) await pushRemoteState(activeProfileId);
+    }, 250);
+  }
+
+  function getBookLabel(bookName){
+    const key = (bookName || '').trim();
+    if (!key) return 'Unassigned';
+    const meta = booksMeta[key];
+    return (meta && meta.title) ? meta.title : key;
+  }
+
+  function getAllBookNames(source){
+    const fromIndex = [...new Set((source || index).map(c => (c.book || '').trim()))];
+    const fromMeta = Object.keys(booksMeta || {});
+    const merged = new Set(fromIndex.concat(fromMeta));
+    return [...merged].sort((a, b) => getBookLabel(a).localeCompare(getBookLabel(b)));
+  }
+
+  async function switchProfile(profileId){
+    if (!profiles[profileId]) return;
+    activeProfileId = profileId;
+    if (!profileState[profileId]) {
+      profileState[profileId] = {
+        progress: { lastChapterId:null, percents:{} },
+        settings: getDefaultProfileSettings()
+      };
+    }
+    if (syncKey) {
+      await syncStateFromRemote(profileId);
+    }
+    applyTheme();
+    await persistProfileState();
+    renderTopbar();
+    render();
   }
 
   function getSyncKeyFromUrl(){
@@ -604,6 +1182,7 @@
 
   function setSyncKey(key){
     syncKey = (key || '').trim();
+    remoteSyncPrimed = !syncKey;
     try {
       if (syncKey) window.localStorage.setItem(SYNC_KEY_STORAGE_KEY, syncKey);
       else window.localStorage.removeItem(SYNC_KEY_STORAGE_KEY);
@@ -613,27 +1192,218 @@
 
   async function buildLibraryPayload(options){
     const progressOnly = !!(options && options.progressOnly);
+    const progress = getProgress();
+    const settings = getSettings();
     if (progressOnly) {
-      return {
-        version: 1,
-        exportedAt: Date.now(),
-        progress,
-        settings,
-      };
+      return { version:1, exportedAt:Date.now(), progress, settings };
     }
-    const chapters = {};
-    for (const ch of index){
-      const data = await storageGet('chapter:' + ch.id);
-      if (data) chapters[ch.id] = data;
-    }
-    return { version:1, exportedAt:Date.now(), index, chapters, progress, settings };
+    return {
+      version:1,
+      exportedAt:Date.now(),
+      index,
+      progress,
+      settings,
+      booksMeta: compactBooksMetaForSync(booksMeta),
+    };
   }
 
-  async function loadRemoteLibrary(){
+  async function collectMainPageDebugData(){
+    const payload = await buildLibraryPayload();
+    const payloadJson = JSON.stringify(payload);
+    const keysRes = await window.storage.list('');
+    const keys = (keysRes && keysRes.keys) ? keysRes.keys : [];
+    const scopedKeys = keys.filter((k) => /^book:[^:]+:/.test(k));
+    const globalKeys = keys.filter((k) => !/^book:[^:]+:/.test(k));
+    let missingChapterCount = 0;
+    for (const ch of (payload.index || [])) {
+      if (!ch || !ch.id) continue;
+      const local = await storageGet('chapter:' + ch.id);
+      if (!local) missingChapterCount++;
+    }
+    return {
+      books: getAllBookNames(index).length,
+      chapters: index.length,
+      payloadBytes: payloadJson.length,
+      chapterBodies: index.length - missingChapterCount,
+      missingChapterCount,
+      keysTotal: keys.length,
+      keysScoped: scopedKeys.length,
+      keysGlobal: globalKeys.length,
+    };
+  }
+
+  async function refreshMainPageDebug(){
+    if (routeBookSlug) return;
+    mainPageDebug.loading = true;
+    mainPageDebug.error = '';
+    render();
+    try {
+      mainPageDebug.data = await collectMainPageDebugData();
+    } catch (e) {
+      mainPageDebug.error = e && e.message ? e.message : 'Unable to collect debug info';
+    } finally {
+      mainPageDebug.loading = false;
+      render();
+    }
+  }
+
+  function hashString(str){
+    let h = 2166136261;
+    for (let i = 0; i < str.length; i++) {
+      h ^= str.charCodeAt(i);
+      h += (h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24);
+    }
+    return (h >>> 0).toString(16);
+  }
+
+  function payloadSignatureFromJson(jsonText){
+    return String(jsonText.length) + ':' + hashString(jsonText);
+  }
+
+  function payloadSignatureFromPayload(payload){
+    // exportedAt changes every build and should not force a fresh sync by itself.
+    const stable = Object.assign({}, payload, { exportedAt: 0 });
+    return payloadSignatureFromJson(JSON.stringify(stable));
+  }
+
+  function compactBooksMetaForSync(source){
+    const input = (source && typeof source === 'object') ? source : {};
+    const out = {};
+    for (const key of Object.keys(input)) {
+      const meta = input[key] && typeof input[key] === 'object' ? input[key] : {};
+      out[key] = {
+        title: meta.title || key,
+        coverPath: meta.coverPath || '',
+      };
+    }
+    return out;
+  }
+
+  function resolveCoverSrc(bookName, meta){
+    const m = (meta && typeof meta === 'object') ? meta : {};
+    if (m.coverPath) return m.coverPath;
+    if (m.coverDataUrl) return m.coverDataUrl;
+    return '';
+  }
+
+  async function uploadCoverToServer(bookName, dataUrl){
+    if (!syncKey) return { ok:false, coverPath:'' };
+    try {
+      const res = await fetch(COVER_ENDPOINT, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-sync-key': syncKey,
+        },
+        body: JSON.stringify({ book: bookName, dataUrl }),
+      });
+      if (!res.ok) return { ok:false, coverPath:'' };
+      const payload = await res.json();
+      return { ok:true, coverPath: (payload && payload.coverPath) ? payload.coverPath : '' };
+    } catch (e) {
+      return { ok:false, coverPath:'' };
+    }
+  }
+
+  async function pushChapterToRemote(chapterId, data){
+    if (!syncKey || !chapterId || !data) return false;
+    try {
+      const res = await fetch(CHAPTER_ENDPOINT, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-sync-key': syncKey,
+        },
+        body: JSON.stringify({ id: chapterId, data }),
+      });
+      return !!res.ok;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  async function loadChapterFromRemote(chapterId){
+    if (!syncKey || !chapterId) return null;
+    try {
+      const url = new URL(CHAPTER_ENDPOINT, window.location.origin);
+      url.searchParams.set('key', syncKey);
+      url.searchParams.set('id', chapterId);
+      const res = await fetch(url.toString());
+      if (!res.ok) return null;
+      const payload = await res.json();
+      return payload && payload.data ? payload.data : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  async function loadRemoteState(profileId){
+    if (!syncKey) return null;
+    try {
+      const pid = (profileId || activeProfileId || 'izaiah').toString().trim().toLowerCase();
+      const url = new URL(STATE_ENDPOINT, window.location.origin);
+      url.searchParams.set('key', syncKey);
+      url.searchParams.set('profile', pid);
+      const res = await fetch(url.toString());
+      if (!res.ok) return null;
+      const payload = await res.json();
+      return payload && payload.data ? payload.data : null;
+    } catch (e) {
+      console.warn('Remote state load failed', e);
+      return null;
+    }
+  }
+
+  async function pushRemoteState(profileId){
+    if (!syncKey) return false;
+    try {
+      const pid = (profileId || activeProfileId || 'izaiah').toString().trim().toLowerCase();
+      const state = getActiveProfileState();
+      const body = {
+        version: 1,
+        exportedAt: Date.now(),
+        progress: state.progress || { lastChapterId: null, percents: {} },
+        settings: state.settings || {},
+      };
+      const res = await fetch(STATE_ENDPOINT, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-sync-key': syncKey,
+          'x-profile-id': pid,
+        },
+        body: JSON.stringify(body),
+      });
+      return !!res.ok;
+    } catch (e) {
+      console.warn('Remote state save failed', e);
+      return false;
+    }
+  }
+
+  async function syncStateFromRemote(profileId){
+    const pid = (profileId || activeProfileId || 'izaiah').toString().trim().toLowerCase();
+    const remoteState = await loadRemoteState(pid);
+    if (!remoteState || typeof remoteState !== 'object') return false;
+    if (!profileState[pid]) {
+      profileState[pid] = {
+        progress: { lastChapterId:null, percents:{} },
+        settings: getDefaultProfileSettings()
+      };
+    }
+    if (remoteState.progress) profileState[pid].progress = remoteState.progress;
+    if (remoteState.settings) Object.assign(profileState[pid].settings, remoteState.settings);
+    await storageSet('profile-state', profileState);
+    return true;
+  }
+
+  async function loadRemoteLibrary(options){
     if (!syncKey) return null;
     try {
       const url = new URL(SYNC_ENDPOINT, window.location.origin);
       url.searchParams.set('key', syncKey);
+      if (options && options.metaOnly) url.searchParams.set('meta', '1');
+      if (routeBookSlug) url.searchParams.set('book', routeBookSlug);
       const res = await fetch(url.toString());
       if (!res.ok) return null;
       const payload = await res.json();
@@ -644,41 +1414,178 @@
     }
   }
 
-  async function pushRemoteLibrary(options){
-    const progressOnly = !!(options && options.progressOnly);
-    if (!syncKey) return false;
+  async function canPrimeScopedSyncFromRemote(){
+    if (!syncKey || !routeBookSlug) return false;
     try {
-      const payload = await buildLibraryPayload({ progressOnly });
-      const res = await fetch(SYNC_ENDPOINT, {
-        method:'POST',
-        headers:{
-          'Content-Type':'application/json',
-          'x-sync-key': syncKey,
-          ...(progressOnly ? { 'x-sync-partial': 'progress' } : {}),
-        },
-        body: JSON.stringify(payload)
-      });
-      return res.ok;
+      const url = new URL(SYNC_ENDPOINT, window.location.origin);
+      url.searchParams.set('key', syncKey);
+      url.searchParams.set('book', routeBookSlug);
+      const res = await fetch(url.toString());
+      if (!res.ok) return false;
+      const payload = await res.json();
+      const data = payload && Object.prototype.hasOwnProperty.call(payload, 'data') ? payload.data : null;
+      if (data && !Array.isArray(data.index)) return false;
+      remoteSyncPrimed = true;
+      return true;
     } catch (e) {
-      console.warn('Remote sync save failed', e);
       return false;
     }
   }
 
-  async function syncFromRemote(){
-    if (!syncKey) return false;
-    const remote = await loadRemoteLibrary();
-    if (!remote || !Array.isArray(remote.index)) return false;
-    index = remote.index || [];
-    progress = remote.progress || { lastChapterId:null, percents:{} };
-    if (remote.settings) settings = Object.assign(settings, remote.settings);
-    for (const ch of index){
-      const data = remote.chapters && remote.chapters[ch.id];
-      if (data) await storageSet('chapter:' + ch.id, data);
+  async function pushRemoteLibrary(options){
+    const forceReplace = !!(options && options.forceReplace);
+    const progressOnly = !!(options && options.progressOnly);
+    if (progressOnly) {
+      const ok = await pushRemoteState(activeProfileId);
+      syncStatus = {
+        state: ok ? 'synced' : 'failed',
+        at: Date.now(),
+        message: ok ? 'Profile state synced' : 'Profile state sync failed',
+      };
+      updateSyncStatusChip();
+      return ok;
     }
-    await storageSet('chapters-index', index);
-    await storageSet('progress', progress);
-    await storageSet('settings', settings);
+    if (!syncKey) return false;
+    if (syncInFlight) {
+      syncPending = true;
+      if (forceReplace) syncPendingReplace = true;
+      return true;
+    }
+
+    syncInFlight = true;
+    if (forceReplace) syncPendingReplace = true;
+    let overallOk = true;
+    let recoveryAttempted = false;
+    try {
+      do {
+        syncPending = false;
+        const replaceThisCycle = !!syncPendingReplace;
+        syncPendingReplace = false;
+
+        if (!progressOnly && routeBookSlug && !remoteSyncPrimed) {
+          // Avoid destructive scoped overwrite if this route has not pulled remote data yet.
+          const pulled = await syncFromRemote();
+          if (!pulled) {
+            const primed = await canPrimeScopedSyncFromRemote();
+            if (!primed) {
+              syncDebug.failures++;
+              syncDebug.lastReason = 'Scoped sync blocked until remote data loads';
+              syncDebug.lastAt = Date.now();
+              syncStatus = { state:'failed', at:Date.now(), message:'Scoped sync blocked until remote data loads' };
+              updateSyncStatusChip();
+              return false;
+            }
+          }
+        }
+
+        const payload = await buildLibraryPayload({ progressOnly });
+        const payloadJson = JSON.stringify(payload);
+        const payloadSig = payloadSignatureFromPayload(payload);
+        syncDebug.lastPayloadBytes = payloadJson.length;
+
+        if (payloadSig === lastSyncedPayloadSig) {
+          syncDebug.lastReason = 'Already synced';
+          syncDebug.lastAt = Date.now();
+          syncStatus = { state:'synced', at:Date.now(), message:'Already synced' };
+          updateSyncStatusChip();
+          continue;
+        }
+
+        syncStatus = { state:'syncing', at:Date.now(), message:'Sync in progress' };
+        updateSyncStatusChip();
+
+        const startedAt = Date.now();
+        syncDebug.attempts++;
+        const res = await fetch(SYNC_ENDPOINT, {
+          method:'POST',
+          headers:{
+            'Content-Type':'application/json',
+            'x-sync-key': syncKey,
+            ...(progressOnly ? { 'x-sync-partial': 'progress' } : {}),
+            ...(!progressOnly && routeBookSlug ? { 'x-book-slug': routeBookSlug } : {}),
+            ...(replaceThisCycle ? { 'x-sync-replace': '1' } : {}),
+          },
+          body: payloadJson
+        });
+        syncDebug.lastDurationMs = Date.now() - startedAt;
+
+        const ok = !!res.ok;
+        overallOk = overallOk && ok;
+        if (ok) {
+          lastSyncedPayloadSig = payloadSig;
+          syncDebug.successes++;
+          syncDebug.lastReason = 'Last sync saved to server';
+        } else {
+          syncDebug.failures++;
+          syncDebug.lastReason = 'Server rejected sync (' + res.status + ')';
+        }
+        syncDebug.lastAt = Date.now();
+        syncStatus = {
+          state: ok ? 'synced' : 'failed',
+          at: Date.now(),
+          message: ok ? 'Last sync saved to server' : 'Server rejected sync',
+        };
+        updateSyncStatusChip();
+      } while (syncPending);
+
+      return overallOk;
+    } catch (e) {
+      console.warn('Remote sync save failed', e);
+      syncDebug.failures++;
+      syncDebug.lastReason = 'Sync failed: ' + e.message;
+      syncDebug.lastError = e && e.stack ? e.stack : String(e);
+      syncDebug.lastAt = Date.now();
+      syncStatus = { state:'failed', at:Date.now(), message:'Sync failed: ' + e.message };
+      updateSyncStatusChip();
+      return false;
+    } finally {
+      syncInFlight = false;
+    }
+  }
+
+  async function syncFromRemote(options){
+    if (!syncKey) return false;
+    syncStatus = { state:'syncing', at:Date.now(), message:'Loading latest data from server' };
+    updateSyncStatusChip();
+    const remote = await loadRemoteLibrary(options);
+    if (!remote || !Array.isArray(remote.index)) return false;
+    if (routeBookSlug) {
+      const currentIndex = Array.isArray(index) ? index : [];
+      const currentBooksMeta = (booksMeta && typeof booksMeta === 'object') ? booksMeta : {};
+      const remoteIds = new Set(remote.index.map((ch) => ch && ch.id).filter(Boolean));
+      const mergedIndex = currentIndex.filter((ch) => !ch || !slugifyBookName(ch.book) || slugifyBookName(ch.book) !== routeBookSlug);
+      remote.index.forEach((entry) => {
+        if (entry && entry.id) {
+          const existingPos = mergedIndex.findIndex((ch) => ch && ch.id === entry.id);
+          if (existingPos >= 0) mergedIndex[existingPos] = entry;
+          else mergedIndex.push(entry);
+        }
+      });
+      index = mergedIndex;
+      booksMeta = Object.assign({}, currentBooksMeta, remote.booksMeta || {});
+      for (const ch of remote.index) {
+        if (!ch || !ch.id) continue;
+        const local = await storageGet('chapter:' + ch.id);
+        if (!local) {
+          const data = await loadChapterFromRemote(ch.id);
+          if (data) await storageSet('chapter:' + ch.id, data);
+        }
+      }
+      await storageSet('chapters-index', index);
+      await storageSet('books-meta', booksMeta);
+    } else {
+      index = remote.index || [];
+      booksMeta = (remote.booksMeta && typeof remote.booksMeta === 'object')
+        ? Object.assign({}, booksMeta || {}, remote.booksMeta)
+        : (booksMeta || {});
+      await storageSet('chapters-index', index);
+      await storageSet('books-meta', booksMeta);
+    }
+    await storageSet('profile-state', profileState);
+    syncStatus = { state:'synced', at:Date.now(), message:'Pulled latest library from server' };
+    remoteSyncPrimed = true;
+    lastSyncedPayloadSig = '';
+    updateSyncStatusChip();
     applyTheme();
     render();
     return true;
@@ -691,8 +1598,13 @@
     if (nextKey === null) return false;
     setSyncKey(nextKey || '');
     if (syncKey) {
-      await syncFromRemote();
-      await pushRemoteLibrary();
+      if (routeBookSlug) {
+        await syncFromRemote();
+        await pushRemoteLibrary();
+      } else {
+        await syncFromRemote({ metaOnly:true });
+      }
+      await syncStateFromRemote(activeProfileId);
     }
     renderTopbar();
     return !!syncKey;
@@ -702,21 +1614,54 @@
   // Init
   // ---------------------------------------------------------------
   async function init(){
-    const [idx, prog, sett] = await Promise.all([
+    if (routeBookSlug) {
+      await migrateScopedLibraryToGlobal(routeBookSlug);
+    }
+    const [idx, profilesData, profileStateData, booksMetaData] = await Promise.all([
       storageGet('chapters-index'),
-      storageGet('progress'),
-      storageGet('settings'),
+      storageGet('profiles-data'),
+      storageGet('profile-state'),
+      storageGet('books-meta'),
     ]);
     index = idx || [];
-    progress = prog || { lastChapterId:null, percents:{} };
-    if (sett) settings = Object.assign(settings, sett);
-    applyTheme();
-    setSyncKey(getSyncKeyFromUrl() || getStoredSyncKey());
-    if (syncKey) {
-      await syncFromRemote();
+    booksMeta = (booksMetaData && typeof booksMetaData === 'object') ? booksMetaData : {};
+    const defaults = getDefaultProfiles();
+    profiles = (profilesData && typeof profilesData === 'object')
+      ? Object.assign({}, defaults, profilesData)
+      : defaults;
+    if (profileStateData && typeof profileStateData === 'object') {
+      profileState = profileStateData;
     }
+    // Ensure all profiles have state
+    Object.keys(profiles).forEach(id => {
+      if (!profileState[id]) {
+        profileState[id] = {
+          progress: { lastChapterId:null, percents:{} },
+          settings: getDefaultProfileSettings()
+        };
+      }
+    });
+    activeProfileId = 'izaiah';
+    if (routeBookSlug) view.booksCollapsed = true;
+    setSyncKey(getSyncKeyFromUrl() || getStoredSyncKey());
+    applyTheme();
     renderTopbar();
     render();
+
+    persistProfileState().catch((e) => {
+      console.warn('Initial profile state save failed', e);
+    });
+
+    if (syncKey) {
+      const syncTask = routeBookSlug ? syncFromRemote() : syncFromRemote({ metaOnly:true });
+      syncTask.catch((e) => {
+        console.warn('Initial remote sync failed', e);
+      });
+      const stateTask = syncStateFromRemote(activeProfileId);
+      stateTask.catch((e) => {
+        console.warn('Initial remote state sync failed', e);
+      });
+    }
   }
 
   // ---------------------------------------------------------------
@@ -724,6 +1669,121 @@
   // ---------------------------------------------------------------
   fileInput.addEventListener('change', (e) => handleUpload(e.target.files, fileInput));
   folderInput.addEventListener('change', (e) => handleUpload(e.target.files, folderInput));
+  coverInput.addEventListener('change', async (e) => {
+    const file = (e.target.files && e.target.files[0]) ? e.target.files[0] : null;
+    if (!file) return;
+    pendingCoverDataUrl = await readCoverAsDataUrl(file);
+    renderBookCoverPreview();
+    coverInput.value = '';
+  });
+
+  function getAddModalBookValue(){
+    const select = document.getElementById('addBookSelect');
+    const input = document.getElementById('addBookNewInput');
+    if (!select || !input) return '';
+    if (select.value === '__new__') return (input.value || '').trim();
+    return (select.value || '').trim();
+  }
+
+  function openAddChapterModal(prefillBook){
+    const modal = document.getElementById('addModal');
+    const backdrop = document.getElementById('addModalBackdrop');
+    const select = document.getElementById('addBookSelect');
+    const newBookInput = document.getElementById('addBookNewInput');
+    const volumeInput = document.getElementById('addVolumeInput');
+    const chooseFilesBtn = document.getElementById('addChooseFilesBtn');
+    const chooseFolderBtn = document.getElementById('addChooseFolderBtn');
+    const closeBtn = document.getElementById('addModalCloseBtn');
+    const books = getAllBookNames();
+
+    select.innerHTML = '';
+    const blank = document.createElement('option');
+    blank.value = '';
+    blank.textContent = 'Unassigned';
+    select.appendChild(blank);
+    books.forEach((name) => {
+      const opt = document.createElement('option');
+      opt.value = name;
+      opt.textContent = getBookLabel(name);
+      select.appendChild(opt);
+    });
+    const addNew = document.createElement('option');
+    addNew.value = '__new__';
+    addNew.textContent = '+ New book';
+    select.appendChild(addNew);
+
+    if (prefillBook && books.includes(prefillBook)) {
+      select.value = prefillBook;
+    } else if (prefillBook && !books.includes(prefillBook)) {
+      select.value = '__new__';
+      newBookInput.value = prefillBook;
+    } else {
+      select.value = '';
+      newBookInput.value = '';
+    }
+    volumeInput.value = '';
+    newBookInput.style.display = select.value === '__new__' ? 'block' : 'none';
+
+    const close = () => {
+      modal.classList.remove('open');
+      backdrop.classList.remove('open');
+      select.onchange = null;
+      chooseFilesBtn.onclick = null;
+      chooseFolderBtn.onclick = null;
+      closeBtn.onclick = null;
+      backdrop.onclick = null;
+    };
+
+    select.onchange = () => {
+      newBookInput.style.display = select.value === '__new__' ? 'block' : 'none';
+      if (select.value !== '__new__') newBookInput.value = '';
+    };
+
+    const beginUpload = (useFolder) => {
+      const chosenBook = getAddModalBookValue();
+      const chosenVolume = (volumeInput.value || '').trim();
+      if (select.value === '__new__' && !chosenBook) {
+        alert('Enter a new book name first.');
+        return;
+      }
+      pendingChapterTitle = '';
+      pendingUploadBook = chosenBook;
+      pendingUploadVolume = chosenVolume;
+      close();
+      if (useFolder) folderInput.click();
+      else fileInput.click();
+    };
+
+    chooseFilesBtn.onclick = () => beginUpload(false);
+    chooseFolderBtn.onclick = () => beginUpload(true);
+    closeBtn.onclick = close;
+    backdrop.onclick = close;
+    modal.classList.add('open');
+    backdrop.classList.add('open');
+  }
+
+  function startAddChapter(){
+    pendingChapterTitle = '';
+    pendingUploadBook = '';
+    pendingUploadVolume = '';
+    openAddChapterModal('');
+  }
+
+  function startAddChapterToBook(bookName){
+    pendingChapterTitle = '';
+    openAddChapterModal((bookName || '').trim());
+  }
+
+  function returnToLibrary(){
+    view.mode = 'library';
+    view.chapterId = null;
+    view.bookFilter = '';
+    view.search = '';
+    view.settingsOpen = false;
+    view.sidebarOpen = false;
+    renderTopbar();
+    render();
+  }
 
   async function handleUpload(fileList, inputEl){
     const files = Array.from(fileList || []).filter(f => /\.txt$/i.test(f.name));
@@ -738,16 +1798,21 @@
       if (progressLabel) progressLabel(i+1, files.length, file.name);
       const text = await file.text();
       const stem = file.name.replace(/\.txt$/i, '');
-      const match = stem.match(/(\d{1,6})/);
-      const num = match ? parseInt(match[1], 10) : null;
-      const volume = detectVolume(file);
+      const requestedTitle = pendingChapterTitle && files.length === 1 ? pendingChapterTitle : '';
+      const title = (requestedTitle || stem).trim() || stem;
+      const detectedBook = detectBook(file);
+      const book = pendingUploadBook || detectedBook || null;
+      const volume = detectVolume(file) || pendingUploadVolume || null;
       const id = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()+Math.random()));
-      const ok = await storageSet('chapter:' + id, { title: stem, content: text });
+      const ok = await storageSet('chapter:' + id, { title, content: text });
       if (!ok){
         failed.push(file.name);
         continue;
       }
-      index.push({ id, title: stem, num, volume, addedAt: Date.now() });
+      if (syncKey) {
+        await pushChapterToRemote(id, { title, content: text });
+      }
+      index.push({ id, title, book, volume, addedAt: Date.now() });
       addedCount++;
       // small pacing gap helps avoid rate-limit errors on large batches
       if (files.length > 10) await new Promise(res => setTimeout(res, 120));
@@ -761,9 +1826,12 @@
       }
     }
     if (syncKey) {
-      await pushRemoteLibrary({ progressOnly:true });
+      await pushRemoteLibrary();
     }
     if (progressLabel) progressLabel(null);
+    pendingChapterTitle = '';
+    pendingUploadBook = '';
+    pendingUploadVolume = '';
     inputEl.value = '';
     render();
 
@@ -772,6 +1840,48 @@
         'These failed to save (likely a temporary connection issue) — try adding them again:\n' +
         failed.slice(0, 20).join('\n') + (failed.length > 20 ? '\n…and ' + (failed.length-20) + ' more' : ''));
     }
+  }
+
+  function readFileAsDataUrl(file){
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function readCoverAsDataUrl(file){
+    const sourceDataUrl = await readFileAsDataUrl(file);
+    let image;
+    try {
+      image = await new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error('Invalid image file'));
+        img.src = sourceDataUrl;
+      });
+    } catch (e) {
+      return sourceDataUrl;
+    }
+
+    const maxWidth = 720;
+    const maxHeight = 1080;
+    const scale = Math.min(1, maxWidth / image.width, maxHeight / image.height);
+    const targetWidth = Math.max(1, Math.round(image.width * scale));
+    const targetHeight = Math.max(1, Math.round(image.height * scale));
+
+    const canvas = document.createElement('canvas');
+    canvas.width = targetWidth;
+    canvas.height = targetHeight;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return sourceDataUrl;
+
+    ctx.drawImage(image, 0, 0, targetWidth, targetHeight);
+
+    const jpeg = canvas.toDataURL('image/jpeg', 0.82);
+    if (typeof jpeg === 'string' && jpeg.length > 1000) return jpeg;
+    return sourceDataUrl;
   }
 
   function showUploadProgress(total){
@@ -791,6 +1901,17 @@
     if (!rel) return null;
     const parts = rel.split('/');
     if (parts.length >= 3) return parts[1];
+    if (parts.length >= 2 && pendingUploadBook) return parts[0];
+    return null;
+  }
+
+  function detectBook(file){
+    // webkitRelativePath looks like "MyNovel/Volume 1/003.txt"
+    // Extract the root folder as the book name
+    const rel = file.webkitRelativePath;
+    if (!rel) return null;
+    const parts = rel.split('/');
+    if (parts.length >= 1) return parts[0];
     return null;
   }
 
@@ -799,16 +1920,25 @@
     return m ? parseInt(m[1], 10) : null;
   }
 
+  function bookSortNum(name){
+    const m = (name || '').match(/(\d{1,4})/);
+    return m ? parseInt(m[1], 10) : null;
+  }
+
   function sortChapters(a, b){
+    // Sort by book, then volume, then chapter number
+    const ab = a.book || '', bb = b.book || '';
+    if (ab !== bb){
+      const an = bookSortNum(ab), bn = bookSortNum(bb);
+      if (an != null && bn != null && an !== bn) return an - bn;
+      return ab.localeCompare(bb);
+    }
     const av = a.volume || '', bv = b.volume || '';
     if (av !== bv){
       const an = volumeSortNum(av), bn = volumeSortNum(bv);
       if (an != null && bn != null && an !== bn) return an - bn;
       return av.localeCompare(bv);
     }
-    if (a.num != null && b.num != null) return a.num - b.num;
-    if (a.num != null) return -1;
-    if (b.num != null) return 1;
     return a.addedAt - b.addedAt;
   }
 
@@ -818,13 +1948,97 @@
     index = index.filter(c => c.id !== id);
     await storageSet('chapters-index', index);
     await storageDelete('chapter:' + id);
+    const progress = getProgress();
     if (progress.percents[id] != null) delete progress.percents[id];
     if (progress.lastChapterId === id) progress.lastChapterId = null;
-    await storageSet('progress', progress);
-    if (syncKey) await pushRemoteLibrary({ progressOnly:true });
+    await persistProfileState();
+    if (syncKey) await pushRemoteLibrary({ forceReplace:true });
     render();
   }
 
+  async function renameChapter(id){
+    const chapter = index.find(c => c.id === id);
+    if (!chapter) return;
+    const nextTitle = prompt('Edit chapter title', chapter.title);
+    if (nextTitle === null) return;
+    const title = (nextTitle || '').trim();
+    if (!title) return;
+    chapter.title = title;
+    await storageSet('chapters-index', index);
+    const data = await storageGet('chapter:' + id);
+    if (data) {
+      await storageSet('chapter:' + id, { ...data, title });
+      if (syncKey) await pushChapterToRemote(id, { ...data, title });
+    }
+    if (syncKey) await pushRemoteLibrary();
+    render();
+  }
+
+  async function editChapter(id){
+    const chapter = index.find(c => c.id === id);
+    if (!chapter) return;
+    
+    const modal = document.getElementById('editModal');
+    const backdrop = document.getElementById('editModalBackdrop');
+    const bookInput = document.getElementById('editBook');
+    const volumeInput = document.getElementById('editVolume');
+    const titleInput = document.getElementById('editTitle');
+    const cancelBtn = document.getElementById('editModalCancelBtn');
+    const saveBtn = document.getElementById('editModalSaveBtn');
+    
+    bookInput.value = chapter.book || '';
+    volumeInput.value = chapter.volume || '';
+    titleInput.value = chapter.title || '';
+    
+    modal.classList.add('open');
+    backdrop.classList.add('open');
+    titleInput.focus();
+    
+    const closeModal = () => {
+      modal.classList.remove('open');
+      backdrop.classList.remove('open');
+      cancelBtn.onclick = null;
+      saveBtn.onclick = null;
+      backdrop.onclick = null;
+    };
+    
+    const handleSave = async () => {
+      const book = (bookInput.value || '').trim() || null;
+      const volume = (volumeInput.value || '').trim() || null;
+      const title = (titleInput.value || '').trim();
+      
+      if (!title) {
+        alert('Title cannot be empty');
+        return;
+      }
+      
+      chapter.book = book;
+      chapter.volume = volume;
+      chapter.title = title;
+      
+      index.sort(sortChapters);
+      await storageSet('chapters-index', index);
+      
+      const data = await storageGet('chapter:' + id);
+      if (data) {
+        await storageSet('chapter:' + id, { ...data, title });
+        if (syncKey) await pushChapterToRemote(id, { ...data, title });
+      }
+      
+      if (syncKey) await pushRemoteLibrary();
+      
+      closeModal();
+      render();
+    };
+    
+    cancelBtn.onclick = closeModal;
+    saveBtn.onclick = handleSave;
+    backdrop.onclick = closeModal;
+    titleInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') handleSave();
+      else if (e.key === 'Escape') closeModal();
+    });
+  }
   // ---------------------------------------------------------------
   // Export / Import (manual transfer between devices)
   // ---------------------------------------------------------------
@@ -837,7 +2051,15 @@
         const data = await storageGet('chapter:' + ch.id);
         if (data) chapters[ch.id] = data;
       }
-      const payload = { version:1, exportedAt: Date.now(), index, chapters, progress, settings };
+      const payload = {
+        version:1,
+        exportedAt: Date.now(),
+        index,
+        chapters,
+        progress: getProgress(),
+        settings: getSettings(),
+        booksMeta,
+      };
       const blob = new Blob([JSON.stringify(payload)], { type:'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -874,32 +2096,40 @@
       'Press Cancel to REPLACE your current library entirely.'
     ) ? 'merge' : 'replace';
 
-    if (mode === 'replace') { index = []; progress = { lastChapterId:null, percents:{} }; }
+    const progress = getProgress();
+    if (mode === 'replace') { index = []; progress.lastChapterId = null; progress.percents = {}; }
+    if (mode === 'replace') booksMeta = {};
 
-    const existingTitles = new Set(index.map(c => c.volume + '::' + c.title));
+    const existingKey = (c) => (c.book || '') + '::' + (c.volume || '') + '::' + c.title;
+    const existingTitles = new Set(index.map(existingKey));
     let added = 0;
     for (const entry of payload.index){
-      if (mode === 'merge' && existingTitles.has((entry.volume||'') + '::' + entry.title)) continue;
+      const entryKey = (entry.book || '') + '::' + (entry.volume || '') + '::' + entry.title;
+      if (mode === 'merge' && existingTitles.has(entryKey)) continue;
       const newId = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()+Math.random()));
       const data = payload.chapters[entry.id];
       if (!data) continue;
       await storageSet('chapter:' + newId, data);
-      index.push({ id:newId, title:entry.title, num:entry.num, volume:entry.volume||null, addedAt:Date.now() });
+      index.push({ id:newId, title:entry.title, book:entry.book||null, volume:entry.volume||null, addedAt:Date.now() });
       if (payload.progress && payload.progress.percents && payload.progress.percents[entry.id] != null){
         progress.percents[newId] = payload.progress.percents[entry.id];
         if (payload.progress.lastChapterId === entry.id) progress.lastChapterId = newId;
       }
       added++;
     }
+    if (payload.booksMeta && typeof payload.booksMeta === 'object') {
+      booksMeta = mode === 'merge' ? Object.assign({}, booksMeta, payload.booksMeta) : payload.booksMeta;
+      await persistBooksMeta();
+    }
     index.sort(sortChapters);
     await storageSet('chapters-index', index);
-    await storageSet('progress', progress);
     if (payload.settings){
-      settings = Object.assign(settings, payload.settings);
-      await storageSet('settings', settings);
+      const settings = getSettings();
+      Object.assign(settings, payload.settings);
       applyTheme();
     }
-    if (syncKey) await pushRemoteLibrary({ progressOnly:true });
+    await persistProfileState();
+    if (syncKey) await pushRemoteLibrary(mode === 'replace' ? { forceReplace:true } : undefined);
     view.transferOpen = false;
     render();
     alert('Imported ' + added + ' chapter(s).');
@@ -911,16 +2141,59 @@
 
   function renderTopbar(){
     topbarActions.innerHTML = '';
+    const profileSwitcher = document.createElement('div');
+    profileSwitcher.className = 'profile-switcher';
+    const profileLabel = document.createElement('span');
+    profileLabel.className = 'visually-hidden';
+    profileLabel.textContent = 'Profile';
+    const profileSelect = document.createElement('select');
+    profileSelect.className = 'profile-select';
+    profileSelect.setAttribute('aria-label', 'Profile');
+    Object.entries(profiles).forEach(([id, profile]) => {
+      const opt = document.createElement('option');
+      opt.value = id;
+      opt.textContent = profile.name;
+      if (id === activeProfileId) opt.selected = true;
+      profileSelect.appendChild(opt);
+    });
+    profileSelect.onchange = () => switchProfile(profileSelect.value);
+    profileSwitcher.append(profileLabel, profileSelect);
+
     if (view.mode === 'library'){
-      brandTitle.textContent = 'Reading Room';
-      const addFolderBtn = document.createElement('button');
-      addFolderBtn.className = 'subtle';
-      addFolderBtn.textContent = '+ Add folder';
-      addFolderBtn.onclick = () => folderInput.click();
+      if (routeBookSlug) {
+        brandTitle.textContent = '← All Books';
+        brandTitle.style.cursor = 'pointer';
+        brandTitle.onclick = () => { window.location.href = getMainLibraryPath(); };
+      } else {
+        brandTitle.textContent = 'Reading Room';
+        brandTitle.style.cursor = '';
+        brandTitle.onclick = null;
+      }
+      const settings = getSettings();
+      const darkBadge = document.createElement('button');
+      darkBadge.className = 'subtle';
+      darkBadge.textContent = (settings.theme || 'dark') === 'dark' ? 'Dark ✓' : 'Light';
+      darkBadge.title = 'Toggle light/dark theme';
+      darkBadge.onclick = async () => {
+        settings.theme = (settings.theme || 'dark') === 'dark' ? 'light' : 'dark';
+        applyTheme();
+        await persistProfileState();
+        if (syncKey) await pushRemoteLibrary();
+        renderTopbar();
+      };
       const addBtn = document.createElement('button');
       addBtn.className = 'primary';
-      addBtn.textContent = '+ Add files';
-      addBtn.onclick = () => fileInput.click();
+      addBtn.textContent = '+ Add chapter';
+      addBtn.onclick = () => startAddChapter();
+      const debugBtn = document.createElement('button');
+      debugBtn.className = 'subtle';
+      debugBtn.textContent = view.debugOpen ? 'Debug ✓' : 'Debug';
+      debugBtn.title = 'Show sync and storage diagnostics';
+      debugBtn.onclick = () => {
+        view.debugOpen = !view.debugOpen;
+        if (view.debugOpen && !routeBookSlug) refreshMainPageDebug();
+        render();
+      };
       const moreBtn = document.createElement('button');
       moreBtn.className = 'icon-btn subtle';
       moreBtn.title = 'Export or import your library';
@@ -935,11 +2208,25 @@
           alert('Sync key set. Open this same site on your phone with ?sync=' + syncKey + ' to pull the library over.');
         }
       };
-      topbarActions.append(moreBtn, syncBtn, addFolderBtn, addBtn);
+      const syncStatusChip = document.createElement('button');
+      syncStatusChip.className = 'subtle sync-chip';
+      syncStatusChip.id = 'syncStatusChip';
+      syncStatusChip.disabled = true;
+      syncStatusChip.textContent = getSyncStatusText();
+      syncStatusChip.title = syncStatus.message || 'Sync status';
+      if (routeBookSlug) topbarActions.append(profileSwitcher, darkBadge, syncStatusChip, moreBtn, syncBtn, addBtn);
+      else topbarActions.append(profileSwitcher, darkBadge, syncStatusChip, debugBtn, moreBtn, syncBtn, addBtn);
     } else {
-      brandTitle.textContent = '← Library';
+      brandTitle.textContent = routeBookSlug ? '← Book Page' : '← Library';
       brandTitle.style.cursor = 'pointer';
-      brandTitle.onclick = () => { view.mode='library'; view.chapterId=null; renderTopbar(); render(); };
+      brandTitle.onclick = returnToLibrary;
+      if (routeBookSlug){
+        const booksBtn = document.createElement('button');
+        booksBtn.className = 'subtle';
+        booksBtn.textContent = 'All Books';
+        booksBtn.onclick = () => { window.location.href = getMainLibraryPath(); };
+        topbarActions.appendChild(booksBtn);
+      }
       const listBtn = document.createElement('button');
       listBtn.className = 'icon-btn subtle';
       listBtn.title = 'Chapter list';
@@ -950,7 +2237,13 @@
       settingsBtn.title = 'Reading settings';
       settingsBtn.textContent = 'Aa';
       settingsBtn.onclick = () => { view.settingsOpen = !view.settingsOpen; render(); };
-      topbarActions.append(listBtn, settingsBtn);
+      const syncStatusChip = document.createElement('button');
+      syncStatusChip.className = 'subtle sync-chip';
+      syncStatusChip.id = 'syncStatusChip';
+      syncStatusChip.disabled = true;
+      syncStatusChip.textContent = getSyncStatusText();
+      syncStatusChip.title = syncStatus.message || 'Sync status';
+      topbarActions.append(profileSwitcher, syncStatusChip, listBtn, settingsBtn);
     }
   }
 
@@ -970,74 +2263,543 @@
   // ---------------------------------------------------------------
   // Library view
   // ---------------------------------------------------------------
+  function getDisplaySortedChapters(items){
+    const list = [...items];
+    const mode = view.chapterSort || 'book-volume-added';
+    if (mode === 'title'){
+      list.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
+      return list;
+    }
+    if (mode === 'recent'){
+      list.sort((a, b) => (b.addedAt || 0) - (a.addedAt || 0));
+      return list;
+    }
+    if (mode === 'book-volume-title'){
+      list.sort((a, b) => {
+        const byBook = sortChapters(a, b);
+        if ((a.book || '') !== (b.book || '') || (a.volume || '') !== (b.volume || '')) return byBook;
+        return (a.title || '').localeCompare(b.title || '');
+      });
+      return list;
+    }
+    list.sort(sortChapters);
+    return list;
+  }
+
+  function renderBookGrid(host, allItems){
+    const books = getAllBookNames(allItems);
+    if (!books.length) return;
+    const grid = document.createElement('div');
+    grid.className = 'book-grid';
+
+    books.forEach((bookName) => {
+      const chaptersInBook = allItems.filter(c => (c.book || '').trim() === bookName);
+      const meta = booksMeta[bookName] || {};
+      const card = document.createElement('div');
+      card.className = 'book-card';
+
+      const coverSrc = resolveCoverSrc(bookName, meta);
+      if (coverSrc){
+        const img = document.createElement('img');
+        img.className = 'book-cover';
+        img.src = coverSrc;
+        img.alt = getBookLabel(bookName) + ' cover';
+        card.appendChild(img);
+      } else {
+        const fb = document.createElement('div');
+        fb.className = 'book-cover-fallback';
+        fb.textContent = 'BOOK';
+        card.appendChild(fb);
+      }
+
+      const metaWrap = document.createElement('div');
+      metaWrap.className = 'book-meta';
+      const bookPath = buildBookReaderPath(bookName);
+      const isCurrentBookRoute = !!routeBookSlug && routeBookSlug === slugifyBookName(bookName);
+      metaWrap.innerHTML = `
+        <div class="book-title">${esc(getBookLabel(bookName))}</div>
+        <div class="book-sub">${chaptersInBook.length} chapter${chaptersInBook.length === 1 ? '' : 's'}</div>
+        <div class="book-actions">
+          <button type="button" class="book-open-btn">${isCurrentBookRoute ? 'Showing' : 'Open'}</button>
+          <button type="button" class="book-manage-btn">Edit</button>
+        </div>`;
+      card.appendChild(metaWrap);
+
+      const openBtn = metaWrap.querySelector('.book-open-btn');
+      const manageBtn = metaWrap.querySelector('.book-manage-btn');
+      openBtn.onclick = () => {
+        if (!isCurrentBookRoute) window.location.href = bookPath;
+      };
+      if (isCurrentBookRoute) openBtn.disabled = true;
+      manageBtn.onclick = () => openBookManager(bookName);
+      grid.appendChild(card);
+    });
+    host.appendChild(grid);
+  }
+
+  function renderBookCoverPreview(){
+    const wrap = document.getElementById('bookCoverPreviewWrap');
+    const picker = document.getElementById('bookPicker');
+    if (!wrap || !picker) return;
+    const key = (picker.value || '').trim();
+    const meta = booksMeta[key] || {};
+    const cover = pendingCoverDataUrl || resolveCoverSrc(key, meta);
+    if (cover){
+      wrap.innerHTML = `<img class="cover-preview" src="${cover}" alt="Book cover preview" />`;
+    } else {
+      wrap.innerHTML = '<div class="cover-placeholder">No cover yet</div>';
+    }
+  }
+
+  function openBookManager(prefillBook){
+    const modal = document.getElementById('bookModal');
+    const backdrop = document.getElementById('bookModalBackdrop');
+    const picker = document.getElementById('bookPicker');
+    const titleInput = document.getElementById('bookTitleInput');
+    const sortSelect = document.getElementById('bookSortSelect');
+    const volumeFromSelect = document.getElementById('volumeRenameFromSelect');
+    const volumeToInput = document.getElementById('volumeRenameToInput');
+    const renameVolumeBtn = document.getElementById('renameVolumeBtn');
+    const saveBtn = document.getElementById('bookModalSaveBtn');
+    const cancelBtn = document.getElementById('bookModalCancelBtn');
+    const deleteBtn = document.getElementById('bookDeleteBtn');
+    const pickCoverBtn = document.getElementById('bookPickCoverBtn');
+    const clearCoverBtn = document.getElementById('bookClearCoverBtn');
+    const uploadBtn = document.getElementById('bookUploadChaptersBtn');
+    const books = getAllBookNames();
+    let deleteArm = false;
+    let deleteArmTimer = null;
+    pendingCoverDataUrl = null;
+
+    picker.innerHTML = '';
+    books.forEach((name) => {
+      const opt = document.createElement('option');
+      opt.value = name;
+      opt.textContent = getBookLabel(name);
+      picker.appendChild(opt);
+    });
+    const newOpt = document.createElement('option');
+    newOpt.value = '__new__';
+    newOpt.textContent = '+ New book';
+    picker.appendChild(newOpt);
+
+    picker.value = books.includes(prefillBook || '') ? (prefillBook || '') : '__new__';
+    sortSelect.value = view.chapterSort || 'book-volume-added';
+
+    function getVolumesForBook(bookKey){
+      return [...new Set(index
+        .filter(ch => (ch.book || '').trim() === (bookKey || '').trim())
+        .map(ch => (ch.volume || '').trim()))]
+        .sort((a, b) => a.localeCompare(b));
+    }
+
+    function refreshVolumeRenameOptions(){
+      const key = (picker.value || '').trim();
+      volumeFromSelect.innerHTML = '';
+      volumeToInput.value = '';
+      if (!key || key === '__new__'){
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = 'Select an existing book first';
+        volumeFromSelect.appendChild(opt);
+        volumeFromSelect.disabled = true;
+        volumeToInput.disabled = true;
+        renameVolumeBtn.disabled = true;
+        return;
+      }
+
+      const volumes = getVolumesForBook(key);
+      if (!volumes.length){
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = 'No volumes in this book yet';
+        volumeFromSelect.appendChild(opt);
+        volumeFromSelect.disabled = true;
+        volumeToInput.disabled = true;
+        renameVolumeBtn.disabled = true;
+        return;
+      }
+
+      const blank = document.createElement('option');
+      blank.value = '';
+      blank.textContent = 'Pick a volume';
+      volumeFromSelect.appendChild(blank);
+      volumes.forEach((vol) => {
+        const opt = document.createElement('option');
+        opt.value = vol;
+        opt.textContent = vol || 'Unassigned';
+        volumeFromSelect.appendChild(opt);
+      });
+      volumeFromSelect.disabled = false;
+      volumeToInput.disabled = false;
+      renameVolumeBtn.disabled = false;
+    }
+
+    function syncFormWithSelection(){
+      const key = (picker.value || '').trim();
+      if (key === '__new__'){
+        titleInput.value = '';
+      } else {
+        titleInput.value = getBookLabel(key);
+      }
+      deleteArm = false;
+      if (deleteArmTimer) {
+        clearTimeout(deleteArmTimer);
+        deleteArmTimer = null;
+      }
+      deleteBtn.textContent = 'Delete book';
+      deleteBtn.disabled = key === '__new__' || !key;
+      renderBookCoverPreview();
+      refreshVolumeRenameOptions();
+    }
+
+    function close(){
+      modal.classList.remove('open');
+      backdrop.classList.remove('open');
+      picker.onchange = null;
+      saveBtn.onclick = null;
+      cancelBtn.onclick = null;
+      deleteBtn.onclick = null;
+      pickCoverBtn.onclick = null;
+      clearCoverBtn.onclick = null;
+      uploadBtn.onclick = null;
+      renameVolumeBtn.onclick = null;
+      backdrop.onclick = null;
+      if (deleteArmTimer) {
+        clearTimeout(deleteArmTimer);
+        deleteArmTimer = null;
+      }
+      pendingCoverDataUrl = null;
+    }
+
+    picker.onchange = syncFormWithSelection;
+    pickCoverBtn.onclick = () => coverInput.click();
+    clearCoverBtn.onclick = () => { pendingCoverDataUrl = ''; renderBookCoverPreview(); };
+    uploadBtn.onclick = () => {
+      const key = picker.value === '__new__' ? (titleInput.value || '').trim() : picker.value;
+      if (!key) { alert('Pick a book title first.'); return; }
+      startAddChapterToBook(key);
+      close();
+    };
+
+    deleteBtn.onclick = async () => {
+      const bookKey = (picker.value || '').trim();
+      if (!bookKey || bookKey === '__new__') return;
+
+      if (!deleteArm) {
+        deleteArm = true;
+        deleteBtn.textContent = 'Click again to delete';
+        deleteArmTimer = setTimeout(() => {
+          deleteArm = false;
+          deleteBtn.textContent = 'Delete book';
+          deleteArmTimer = null;
+        }, 6000);
+        return;
+      }
+
+      if (deleteArmTimer) {
+        clearTimeout(deleteArmTimer);
+        deleteArmTimer = null;
+      }
+      deleteArm = false;
+      deleteBtn.textContent = 'Delete book';
+
+      const doomed = index.filter(ch => (ch.book || '').trim() === bookKey);
+      if (!doomed.length && !booksMeta[bookKey]) {
+        alert('Nothing to delete for this book.');
+        return;
+      }
+
+      if (!confirm('Delete book "' + getBookLabel(bookKey) + '" and all its chapters? This cannot be undone.')) {
+        return;
+      }
+
+      const doomedIds = new Set(doomed.map(ch => ch.id));
+      index = index.filter(ch => !doomedIds.has(ch.id));
+      for (const id of doomedIds) {
+        await storageDelete('chapter:' + id);
+      }
+      delete booksMeta[bookKey];
+
+      const progress = getProgress();
+      for (const id of doomedIds) {
+        if (progress.percents[id] != null) delete progress.percents[id];
+      }
+      if (progress.lastChapterId && doomedIds.has(progress.lastChapterId)) {
+        progress.lastChapterId = null;
+      }
+
+      await storageSet('chapters-index', index);
+      await persistBooksMeta();
+      await persistProfileState();
+      if (syncKey) await pushRemoteLibrary({ forceReplace:true });
+      close();
+      render();
+    };
+
+    renameVolumeBtn.onclick = async () => {
+      const bookKey = (picker.value || '').trim();
+      const fromVolume = (volumeFromSelect.value || '').trim();
+      const toVolume = (volumeToInput.value || '').trim();
+      if (!bookKey || bookKey === '__new__'){
+        alert('Select an existing book first.');
+        return;
+      }
+      if (!fromVolume){
+        alert('Pick a volume to rename.');
+        return;
+      }
+      if (!toVolume){
+        alert('Enter the new volume name.');
+        return;
+      }
+      if (fromVolume === toVolume){
+        alert('New volume name is the same as the current one.');
+        return;
+      }
+
+      let changed = 0;
+      index.forEach((ch) => {
+        if ((ch.book || '').trim() === bookKey && (ch.volume || '').trim() === fromVolume){
+          ch.volume = toVolume;
+          changed++;
+        }
+      });
+      if (!changed){
+        alert('No chapters found in that volume.');
+        return;
+      }
+
+      index.sort(sortChapters);
+      await storageSet('chapters-index', index);
+      if (syncKey) await pushRemoteLibrary();
+      volumeToInput.value = '';
+      refreshVolumeRenameOptions();
+      render();
+      alert('Renamed volume for ' + changed + ' chapter(s).');
+    };
+
+    saveBtn.onclick = async () => {
+      const selected = (picker.value || '').trim();
+      const nextTitle = (titleInput.value || '').trim();
+      if (!nextTitle) {
+        alert('Book title cannot be empty.');
+        return;
+      }
+
+      let targetKey = selected;
+      if (selected === '__new__'){
+        targetKey = nextTitle;
+      }
+
+      if (selected === '__new__' && booksMeta[nextTitle]) {
+        alert('A book with that name already exists. Pick it from the list to edit it.');
+        return;
+      }
+
+      if (selected && selected !== '__new__' && selected !== nextTitle){
+        const currentLabel = getBookLabel(selected);
+        const ok = confirm('Rename book "' + currentLabel + '" to "' + nextTitle + '"?');
+        if (!ok) return;
+        index.forEach(ch => {
+          if ((ch.book || '').trim() === selected) ch.book = nextTitle;
+        });
+        if (booksMeta[selected]) {
+          booksMeta[nextTitle] = booksMeta[selected];
+          delete booksMeta[selected];
+        }
+        targetKey = nextTitle;
+      }
+
+      if (!booksMeta[targetKey]) booksMeta[targetKey] = { title: targetKey, coverDataUrl: '', coverPath: '' };
+      booksMeta[targetKey].title = nextTitle;
+      if (pendingCoverDataUrl !== null) {
+        if (pendingCoverDataUrl === '') {
+          booksMeta[targetKey].coverDataUrl = '';
+          booksMeta[targetKey].coverPath = '';
+        } else if (syncKey) {
+          const uploaded = await uploadCoverToServer(targetKey, pendingCoverDataUrl);
+          if (uploaded.ok && uploaded.coverPath) {
+            booksMeta[targetKey].coverPath = uploaded.coverPath;
+            booksMeta[targetKey].coverDataUrl = '';
+          } else {
+            booksMeta[targetKey].coverDataUrl = pendingCoverDataUrl;
+            booksMeta[targetKey].coverPath = '';
+          }
+        } else {
+          booksMeta[targetKey].coverDataUrl = pendingCoverDataUrl;
+          booksMeta[targetKey].coverPath = '';
+        }
+      }
+
+      view.chapterSort = sortSelect.value || 'book-volume-added';
+      index.sort(sortChapters);
+      await storageSet('chapters-index', index);
+      await persistBooksMeta();
+      if (syncKey) await pushRemoteLibrary();
+      close();
+      render();
+    };
+
+    cancelBtn.onclick = close;
+    backdrop.onclick = close;
+    syncFormWithSelection();
+    modal.classList.add('open');
+    backdrop.classList.add('open');
+  }
+
   function renderLibrary(){
     main.innerHTML = '';
     const wrap = document.createElement('div');
     wrap.className = 'library-wrap';
 
+    const isBookPage = !!routeBookSlug;
+    const routeBookName = getRouteBookName();
+
     if (!index.length){
       wrap.innerHTML = `
         <div class="empty-state">
-          <div class="big">Your library is empty</div>
-          <div>Add the .txt chapter files from your computer to get started — pick individual files or a whole folder at once. They stay saved here — open this same page on your phone and they'll be waiting for you.</div>
+          <div class="big">${isBookPage ? 'This book has no chapters yet' : 'Your library is empty'}</div>
+          <div>${isBookPage ? 'Add chapters to this book, or return to the books page to create/manage other books.' : 'Add the .txt chapter files from your computer to get started — pick individual files or a whole folder at once. They stay saved here — open this same page on your phone and they\'ll be waiting for you.'}</div>
           <div style="margin-top:18px; display:flex; gap:10px; justify-content:center; flex-wrap:wrap;">
-            <button class="subtle" id="emptyAddFolderBtn">+ Add folder</button>
-            <button class="primary" id="emptyAddBtn">+ Add files</button>
+            <button class="primary" id="emptyAddBtn">+ Add chapter</button>
+            <button id="emptyBookBtn">${isBookPage ? 'Book settings' : '+ Create book'}</button>
+            ${isBookPage ? '<button id="emptyBackBtn">All books</button>' : ''}
           </div>
         </div>`;
       main.appendChild(wrap);
-      document.getElementById('emptyAddBtn').onclick = () => fileInput.click();
-      document.getElementById('emptyAddFolderBtn').onclick = () => folderInput.click();
+      document.getElementById('emptyAddBtn').onclick = () => {
+        if (isBookPage) startAddChapterToBook(routeBookName || '');
+        else startAddChapter();
+      };
+      document.getElementById('emptyBookBtn').onclick = () => openBookManager(routeBookName || '__new__');
+      if (isBookPage) {
+        const backBtn = document.getElementById('emptyBackBtn');
+        if (backBtn) backBtn.onclick = () => { window.location.href = getMainLibraryPath(); };
+      }
       return;
     }
 
-    // Continue reading card
-    if (progress.lastChapterId && index.find(c => c.id === progress.lastChapterId)){
-      const ch = index.find(c => c.id === progress.lastChapterId);
-      const pct = Math.round(progress.percents[ch.id] || 0);
+    if (!isBookPage){
+      const toolrow = document.createElement('div');
+      toolrow.className = 'toolrow';
+      toolrow.innerHTML = `
+        <div class="inline-actions">
+          <button type="button" id="manageBooksRootBtn">Manage books</button>
+        </div>`;
+      toolrow.querySelector('#manageBooksRootBtn').onclick = () => openBookManager('');
+      wrap.appendChild(toolrow);
+
+      if (view.debugOpen) {
+        const panel = document.createElement('div');
+        panel.className = 'continue-card';
+        const d = mainPageDebug.data;
+        const statusLine = mainPageDebug.loading
+          ? 'Collecting diagnostics...'
+          : (mainPageDebug.error ? ('Diagnostics error: ' + esc(mainPageDebug.error)) : 'Diagnostics snapshot');
+        panel.innerHTML = `
+          <div style="min-width:260px;">
+            <div class="label">Debug: Sync & Storage</div>
+            <div style="font-size:13px;color:var(--ink-soft);margin-top:4px;">${statusLine}</div>
+            <div style="font-size:12px;color:var(--ink-soft);margin-top:10px;line-height:1.6;">
+              <div>Sync attempts: ${syncDebug.attempts} | success: ${syncDebug.successes} | fail: ${syncDebug.failures}</div>
+              <div>Last reason: ${esc(syncDebug.lastReason || 'n/a')}</div>
+              <div>Last payload: ${formatBytes(syncDebug.lastPayloadBytes)} | last sync time: ${syncDebug.lastDurationMs} ms</div>
+              <div>Recovery pulls: ${syncDebug.recoveryAttempts}</div>
+              <div>Books: ${d ? d.books : '-'} | Chapters: ${d ? d.chapters : '-'}</div>
+              <div>Payload size now: ${d ? formatBytes(d.payloadBytes) : '-'}</div>
+              <div>Stored keys: ${d ? d.keysTotal : '-'} (global ${d ? d.keysGlobal : '-'}, scoped ${d ? d.keysScoped : '-'})</div>
+              <div>Missing local chapter blobs: ${d ? d.missingChapterCount : '-'}</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-self:flex-start;">
+            <button id="refreshDebugBtn">Refresh diagnostics</button>
+          </div>`;
+        wrap.appendChild(panel);
+        const refreshBtn = panel.querySelector('#refreshDebugBtn');
+        if (refreshBtn) refreshBtn.onclick = () => refreshMainPageDebug();
+      }
+
+      renderBookGrid(wrap, index);
+      if (view.transferOpen){
+        const panel = document.createElement('div');
+        panel.className = 'continue-card';
+        panel.innerHTML = `
+          <div>
+            <div class="label">Move library to another device</div>
+            <div style="font-size:13px;color:var(--ink-soft);max-width:46ch;">
+              Export everything to one file here, then open this same reader on your other device and import it there.
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button id="exportBtn">Export library</button>
+            <button id="importBtn" class="primary">Import library</button>
+          </div>`;
+        wrap.appendChild(panel);
+        panel.querySelector('#exportBtn').onclick = exportLibrary;
+        panel.querySelector('#importBtn').onclick = () => importInput.click();
+      }
+      main.appendChild(wrap);
+      return;
+    }
+
+    view.bookFilter = routeBookName || '';
+    view.chapterSort = 'book-volume-added';
+
+    const currentBook = routeBookName || (index[0] && index[0].book) || '';
+    const currentMeta = booksMeta[currentBook] || {};
+    const currentItems = index.filter(c => (c.book || '').trim() === currentBook);
+    const progress = getProgress();
+    const lastReadInBook = progress.lastChapterId
+      ? currentItems.find(c => c.id === progress.lastChapterId)
+      : null;
+    const header = document.createElement('div');
+    header.className = 'book-page-header';
+    const currentCoverSrc = resolveCoverSrc(currentBook, currentMeta);
+    const coverHtml = currentCoverSrc
+      ? `<img class="book-page-cover" src="${currentCoverSrc}" alt="${esc(getBookLabel(currentBook))} cover" />`
+      : '<div class="book-page-cover-fallback">BOOK</div>';
+    header.innerHTML = `
+      ${coverHtml}
+      <div class="book-page-meta">
+        <div class="book-page-title">${esc(getBookLabel(currentBook))}</div>
+        <div class="book-page-sub">${currentItems.length} chapter${currentItems.length === 1 ? '' : 's'} • sorted by volume</div>
+        <div class="book-page-actions">
+          <button type="button" id="bookPageSettingsBtn">Book settings</button>
+          <button type="button" id="bookPageAddBtn" class="primary">+ Add chapters</button>
+          <button type="button" id="bookPageBackBtn">All books</button>
+        </div>
+      </div>`;
+    wrap.appendChild(header);
+    header.querySelector('#bookPageSettingsBtn').onclick = () => openBookManager(currentBook || '__new__');
+    header.querySelector('#bookPageAddBtn').onclick = () => startAddChapterToBook(currentBook || '');
+    header.querySelector('#bookPageBackBtn').onclick = () => { window.location.href = getMainLibraryPath(); };
+
+    if (lastReadInBook){
+      const pct = Math.round(progress.percents[lastReadInBook.id] || 0);
       const card = document.createElement('div');
       card.className = 'continue-card';
       card.innerHTML = `
         <div>
           <div class="label">Continue reading</div>
-          <div class="title">${esc(ch.title)}</div>
+          <div class="title">${esc(lastReadInBook.title)}</div>
           <div class="pct">${pct}% through this chapter</div>
         </div>
         <button class="primary">Resume →</button>`;
-      card.querySelector('button').onclick = () => openChapter(ch.id, true);
+      card.querySelector('button').onclick = () => openChapter(lastReadInBook.id, true);
       wrap.appendChild(card);
     }
 
-    // toolrow: search
     const toolrow = document.createElement('div');
     toolrow.className = 'toolrow';
-    toolrow.innerHTML = `<input class="search-input" placeholder="Filter chapters…" value="${esc(view.search||'')}" />`;
-    const searchInput = toolrow.querySelector('input');
-    searchInput.oninput = (e) => { view.search = e.target.value; renderChapterList(list); };
+    toolrow.innerHTML = `<input class="search-input" placeholder="Filter chapters in this book…" value="${esc(view.search||'')}" />`;
     wrap.appendChild(toolrow);
-
-    if (view.transferOpen){
-      const panel = document.createElement('div');
-      panel.className = 'continue-card';
-      panel.innerHTML = `
-        <div>
-          <div class="label">Move library to another device</div>
-          <div style="font-size:13px;color:var(--ink-soft);max-width:46ch;">
-            Export everything to one file here, then open this same reader on your other device and import it there.
-          </div>
-        </div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          <button id="exportBtn">Export library</button>
-          <button id="importBtn" class="primary">Import library</button>
-        </div>`;
-      wrap.appendChild(panel);
-      panel.querySelector('#exportBtn').onclick = exportLibrary;
-      panel.querySelector('#importBtn').onclick = () => importInput.click();
-    }
 
     const list = document.createElement('div');
     list.id = 'chapterListContainer';
     wrap.appendChild(list);
+    const searchInput = toolrow.querySelector('input');
+    searchInput.oninput = (e) => { view.search = e.target.value; renderChapterList(list); };
     renderChapterList(list);
 
     main.appendChild(wrap);
@@ -1045,51 +2807,118 @@
 
   function buildChapterRow(ch, opts){
     opts = opts || {};
+    const progress = getProgress();
     const pct = Math.round(progress.percents[ch.id] || 0);
     const li = document.createElement('li');
     li.className = 'chapter-row' + (opts.current ? ' current' : '');
     li.innerHTML = `
-      <div class="chapter-num">${ch.num != null ? ch.num : '—'}</div>
       <div class="chapter-main">
         <div class="chapter-title ${pct>=98?'chapter-done':''}">${esc(ch.title)}</div>
         <div class="chapter-progress-track"><div class="chapter-progress-fill" style="width:${pct}%"></div></div>
       </div>
-      ${opts.deletable !== false ? '<button class="chapter-del icon-btn subtle" title="Remove">✕</button>' : ''}`;
+      <div style="display:flex;gap:4px;">
+        <button class="chapter-del icon-btn subtle" title="Edit chapter (book, volume, title)">⚙</button>
+        ${opts.deletable !== false ? '<button class="chapter-del icon-btn subtle" title="Remove">✕</button>' : ''}
+      </div>`;
     li.onclick = () => { if (opts.onClick) opts.onClick(ch); else openChapter(ch.id, false); };
-    const delBtn = li.querySelector('.chapter-del');
+    const editBtn = li.querySelectorAll('.chapter-del')[0];
+    const delBtn = li.querySelectorAll('.chapter-del')[1];
+    if (editBtn) editBtn.onclick = (e) => { e.stopPropagation(); editChapter(ch.id); };
     if (delBtn) delBtn.onclick = (e) => deleteChapter(ch.id, e);
     return li;
   }
 
   function renderChapterList(list){
     const q = (view.search || '').toLowerCase().trim();
-    const items = index.filter(c => !q || c.title.toLowerCase().includes(q));
+    const filtered = index.filter(c => {
+      if (view.bookFilter && (c.book || '').trim() !== view.bookFilter) return false;
+      return !q || c.title.toLowerCase().includes(q);
+    });
+    const items = getDisplaySortedChapters(filtered);
     list.innerHTML = '';
     if (!items.length){
-      list.innerHTML = `<div style="padding:24px 4px;color:var(--ink-soft);">No chapters match "${esc(view.search)}".</div>`;
+      const label = view.bookFilter ? (' in ' + getBookLabel(view.bookFilter)) : '';
+      list.innerHTML = `<div style="padding:24px 4px;color:var(--ink-soft);">No chapters match "${esc(view.search)}"${esc(label)}.</div>`;
       return;
     }
-    const volumes = [...new Set(items.map(c => c.volume || ''))];
-    if (volumes.length <= 1){
-      const ul = document.createElement('ul');
-      ul.className = 'chapter-list';
-      items.forEach(ch => ul.appendChild(buildChapterRow(ch)));
-      list.appendChild(ul);
+
+    if (routeBookSlug){
+      const progress = getProgress();
+      const activeChapterId = progress.lastChapterId && items.some((ch) => ch.id === progress.lastChapterId)
+        ? progress.lastChapterId
+        : null;
+      const volumes = [...new Set(items.map(c => c.volume || ''))];
+      if (volumes.length <= 1){
+        const ul = document.createElement('ul');
+        ul.className = 'chapter-list two-col';
+        items.forEach(ch => ul.appendChild(buildChapterRow(ch)));
+        list.appendChild(ul);
+        return;
+      }
+      volumes.forEach((vol) => {
+        const groupItems = items.filter(c => (c.volume || '') === vol);
+        const chapterProgresses = groupItems.map((ch) => Math.max(0, Math.min(100, Math.round(getProgress().percents[ch.id] || 0))));
+        const volumePct = chapterProgresses.length
+          ? Math.round(chapterProgresses.reduce((sum, pct) => sum + pct, 0) / chapterProgresses.length)
+          : 0;
+        const volDetails = document.createElement('details');
+        volDetails.className = 'volume-group';
+        volDetails.open = !!(activeChapterId && groupItems.some((ch) => ch.id === activeChapterId));
+        const volSummary = document.createElement('summary');
+        volSummary.innerHTML = `
+          <span class="volume-summary-text">${esc(vol || 'Chapters')}</span>
+          <span class="volume-progress-wrap" aria-hidden="true">
+            <span class="volume-progress"><span class="volume-progress-fill" style="width:${volumePct}%"></span></span>
+            <span class="volume-progress-label">${volumePct}%</span>
+          </span>`;
+        volDetails.appendChild(volSummary);
+        const ul = document.createElement('ul');
+        ul.className = 'chapter-list nested two-col';
+        groupItems.forEach(ch => ul.appendChild(buildChapterRow(ch)));
+        volDetails.appendChild(ul);
+        list.appendChild(volDetails);
+      });
       return;
     }
-    volumes.forEach(vol => {
-      const groupItems = items.filter(c => (c.volume || '') === vol);
-      const details = document.createElement('details');
-      details.className = 'volume-group';
-      details.open = true;
-      const summary = document.createElement('summary');
-      summary.textContent = vol || 'Chapters';
-      details.appendChild(summary);
-      const ul = document.createElement('ul');
-      ul.className = 'chapter-list nested';
-      groupItems.forEach(ch => ul.appendChild(buildChapterRow(ch)));
-      details.appendChild(ul);
-      list.appendChild(details);
+
+    const books = [...new Set(items.map(c => c.book || ''))];
+    
+    // Always show book-level grouping, even if only one book
+
+    // Multiple books: group by book, then volume
+    books.forEach(book => {
+      const bookItems = items.filter(c => (c.book || '') === book);
+      const bookDetails = document.createElement('details');
+      bookDetails.className = 'volume-group book-group';
+      bookDetails.open = true;
+      const bookSummary = document.createElement('summary');
+      bookSummary.textContent = getBookLabel(book);
+      bookDetails.appendChild(bookSummary);
+      
+      const volumes = [...new Set(bookItems.map(c => c.volume || ''))];
+      
+      if (volumes.length <= 1){
+        const ul = document.createElement('ul');
+        ul.className = 'chapter-list nested two-col';
+        bookItems.forEach(ch => ul.appendChild(buildChapterRow(ch)));
+        bookDetails.appendChild(ul);
+      } else {
+        volumes.forEach(vol => {
+          const groupItems = bookItems.filter(c => (c.volume || '') === vol);
+          const volDetails = document.createElement('details');
+          volDetails.className = 'volume-group';
+          volDetails.open = false;
+          const volSummary = document.createElement('summary');
+          volSummary.textContent = vol || 'Chapters';
+          volDetails.appendChild(volSummary);
+          const ul = document.createElement('ul');
+          ul.className = 'chapter-list nested two-col';
+          groupItems.forEach(ch => ul.appendChild(buildChapterRow(ch)));
+          volDetails.appendChild(ul);
+          bookDetails.appendChild(volDetails);
+        });
+      }
+      list.appendChild(bookDetails);
     });
   }
 
@@ -1101,7 +2930,7 @@
     dr.classList.toggle('open', !!view.sidebarOpen);
     dr.innerHTML = '<h2>Chapters</h2>';
     const currentId = view.chapterId;
-    const volumes = [...new Set(index.map(c => c.volume || ''))];
+    
     const wrapList = (items) => {
       const ul = document.createElement('ul');
       ul.className = 'chapter-list';
@@ -1112,20 +2941,38 @@
       })));
       return ul;
     };
-    if (volumes.length <= 1){
-      dr.appendChild(wrapList(index));
-    } else {
-      volumes.forEach(vol => {
-        const groupItems = index.filter(c => (c.volume || '') === vol);
-        const details = document.createElement('details');
-        details.className = 'volume-group';
-        details.open = groupItems.some(c => c.id === currentId) || volumes.length < 4;
-        const summary = document.createElement('summary');
-        summary.textContent = vol || 'Chapters';
-        details.append(summary, wrapList(groupItems));
-        dr.appendChild(details);
-      });
-    }
+
+    const books = [...new Set(index.map(c => c.book || ''))];
+    
+    // Always show book-level grouping, even if only one book
+    books.forEach(book => {
+      const bookItems = index.filter(c => (c.book || '') === book);
+      const bookDetails = document.createElement('details');
+      bookDetails.className = 'volume-group book-group';
+      bookDetails.open = bookItems.some(c => c.id === currentId);
+      const bookSummary = document.createElement('summary');
+      bookSummary.textContent = getBookLabel(book);
+      bookDetails.appendChild(bookSummary);
+      
+      const volumes = [...new Set(bookItems.map(c => c.volume || ''))];
+      
+      if (volumes.length <= 1){
+        bookDetails.appendChild(wrapList(bookItems));
+      } else {
+        volumes.forEach(vol => {
+          const groupItems = bookItems.filter(c => (c.volume || '') === vol);
+          const volDetails = document.createElement('details');
+          volDetails.className = 'volume-group';
+          volDetails.open = groupItems.some(c => c.id === currentId) || volumes.length < 4;
+          const volSummary = document.createElement('summary');
+          volSummary.textContent = vol || 'Chapters';
+          volDetails.appendChild(volSummary);
+          volDetails.appendChild(wrapList(groupItems));
+          bookDetails.appendChild(volDetails);
+        });
+      }
+      dr.appendChild(bookDetails);
+    });
   }
 
   // ---------------------------------------------------------------
@@ -1148,7 +2995,16 @@
     main.innerHTML = '<div style="padding:40px;color:var(--ink-soft);">Loading…</div>';
     if (!meta) { view.mode='library'; render(); return; }
 
-    const data = await storageGet('chapter:' + meta.id) || { title: meta.title, content: '(missing content)' };
+    let data = await storageGet('chapter:' + meta.id);
+    if (!data && syncKey) {
+      const remoteChapter = await loadChapterFromRemote(meta.id);
+      if (remoteChapter) {
+        await storageSet('chapter:' + meta.id, remoteChapter);
+        data = remoteChapter;
+      }
+    }
+    data = data || { title: meta.title, content: '(missing content)' };
+    const progress = getProgress();
 
     const wrap = document.createElement('div');
     wrap.className = 'reader-shell';
@@ -1158,8 +3014,6 @@
     ribbon.className = 'ribbon';
     ribbon.textContent = pct + '%';
 
-    const toolbar = buildToolbar();
-
     const heading = document.createElement('div');
     heading.className = 'chapter-heading';
     const idx = index.findIndex(c => c.id === meta.id);
@@ -1168,6 +3022,7 @@
     const content = document.createElement('div');
     content.className = 'reader-content';
     applyReaderStyles(content);
+    const toolbar = buildToolbar(meta, content);
     const paras = (data.content || '').split(/\n\s*\n/).map(p => p.trim()).filter(Boolean);
     (paras.length ? paras : [data.content || '']).forEach(p => {
       const pEl = document.createElement('p');
@@ -1221,6 +3076,20 @@
 
     // scroll tracking
     const scroller = window;
+    let pendingScrollPct = null;
+    let pendingScrollTimer = null;
+    async function flushProgress(){
+      if (pendingScrollTimer) {
+        clearTimeout(pendingScrollTimer);
+        pendingScrollTimer = null;
+      }
+      if (pendingScrollPct === null || pendingScrollPct === undefined) return;
+      progress.lastChapterId = meta.id;
+      progress.percents[meta.id] = pendingScrollPct;
+      pendingScrollPct = null;
+      await persistProfileState();
+      if (syncKey) await pushRemoteLibrary({ progressOnly:true });
+    }
     function computePct(){
       const docHeight = document.documentElement.scrollHeight - window.innerHeight;
       if (docHeight <= 0) return 100;
@@ -1229,19 +3098,26 @@
     function onScroll(){
       const p = computePct();
       ribbon.textContent = Math.round(p) + '%';
+      pendingScrollPct = p;
       clearTimeout(saveTimer);
-      saveTimer = setTimeout(async () => {
-        progress.lastChapterId = meta.id;
-        progress.percents[meta.id] = p;
-        await storageSet('progress', progress);
-        if (syncKey) await pushRemoteLibrary({ progressOnly:true });
+      saveTimer = setTimeout(() => {
+        pendingScrollTimer = null;
+        flushProgress().catch((e) => console.warn('Progress flush failed', e));
       }, 700);
+      pendingScrollTimer = saveTimer;
     }
     window.addEventListener('scroll', onScroll, { passive:true });
+    window.addEventListener('pagehide', flushProgress);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') flushProgress().catch(() => {});
+    });
     view._cleanupScroll = () => {
       window.removeEventListener('scroll', onScroll);
+      window.removeEventListener('pagehide', flushProgress);
       document.removeEventListener('keydown', onKeydown);
       if (typeof view._cleanupDrawer === 'function'){ view._cleanupDrawer(); view._cleanupDrawer = null; }
+      if (pendingScrollTimer) clearTimeout(pendingScrollTimer);
+      flushProgress().catch(() => {});
     };
 
     // restore scroll position on resume or normal open
@@ -1257,6 +3133,7 @@
   }
 
   function applyReaderStyles(el){
+    const settings = getSettings();
     el.style.fontFamily = settings.font;
     el.style.fontSize = settings.fontSize + 'px';
     el.style.lineHeight = settings.lineHeight;
@@ -1264,10 +3141,13 @@
     el.style.margin = '0 auto';
   }
 
-  function buildToolbar(){
+  function buildToolbar(meta, contentEl){
     const bar = document.createElement('div');
     bar.className = 'reader-toolbar';
     if (!view.settingsOpen) { bar.style.display = 'none'; return bar; }
+
+    const settings = getSettings();
+    const progress = getProgress();
 
     // font family
     const fontGrp = document.createElement('div');
@@ -1281,7 +3161,11 @@
       if (f.value === settings.font) o.selected = true;
       sel.appendChild(o);
     });
-    sel.onchange = async () => { settings.font = sel.value; await storageSet('settings', settings); render(); };
+    sel.onchange = () => {
+      settings.font = sel.value;
+      if (contentEl) applyReaderStyles(contentEl);
+      scheduleSettingsPersist();
+    };
     fontGrp.appendChild(sel);
 
     // font size
@@ -1291,8 +3175,19 @@
     const sizeStep = document.createElement('div');
     sizeStep.className = 'stepper';
     sizeStep.innerHTML = `<button aria-label="Decrease font size">−</button><span>${settings.fontSize}</span><button aria-label="Increase font size">+</button>`;
-    sizeStep.children[0].onclick = async () => { settings.fontSize = Math.max(13, settings.fontSize-1); await storageSet('settings', settings); render(); };
-    sizeStep.children[2].onclick = async () => { settings.fontSize = Math.min(30, settings.fontSize+1); await storageSet('settings', settings); render(); };
+    const sizeValue = sizeStep.children[1];
+    sizeStep.children[0].onclick = () => {
+      settings.fontSize = Math.max(13, settings.fontSize-1);
+      sizeValue.textContent = settings.fontSize;
+      if (contentEl) applyReaderStyles(contentEl);
+      scheduleSettingsPersist();
+    };
+    sizeStep.children[2].onclick = () => {
+      settings.fontSize = Math.min(30, settings.fontSize+1);
+      sizeValue.textContent = settings.fontSize;
+      if (contentEl) applyReaderStyles(contentEl);
+      scheduleSettingsPersist();
+    };
     sizeGrp.appendChild(sizeStep);
 
     // line height
@@ -1302,32 +3197,41 @@
     const lineStep = document.createElement('div');
     lineStep.className = 'stepper';
     lineStep.innerHTML = `<button aria-label="Decrease line spacing">−</button><span>${settings.lineHeight.toFixed(1)}</span><button aria-label="Increase line spacing">+</button>`;
-    lineStep.children[0].onclick = async () => { settings.lineHeight = Math.max(1.2, +(settings.lineHeight-0.1).toFixed(1)); await storageSet('settings', settings); render(); };
-    lineStep.children[2].onclick = async () => { settings.lineHeight = Math.min(2.4, +(settings.lineHeight+0.1).toFixed(1)); await storageSet('settings', settings); render(); };
+    const lineValue = lineStep.children[1];
+    lineStep.children[0].onclick = () => {
+      settings.lineHeight = Math.max(1.2, +(settings.lineHeight-0.1).toFixed(1));
+      lineValue.textContent = settings.lineHeight.toFixed(1);
+      if (contentEl) applyReaderStyles(contentEl);
+      scheduleSettingsPersist();
+    };
+    lineStep.children[2].onclick = () => {
+      settings.lineHeight = Math.min(2.4, +(settings.lineHeight+0.1).toFixed(1));
+      lineValue.textContent = settings.lineHeight.toFixed(1);
+      if (contentEl) applyReaderStyles(contentEl);
+      scheduleSettingsPersist();
+    };
     lineGrp.appendChild(lineStep);
 
-    // theme
-    const themeGrp = document.createElement('div');
-    themeGrp.className = 'grp';
-    themeGrp.innerHTML = '<label>Theme</label>';
-    const swatches = document.createElement('div');
-    swatches.className = 'theme-swatches';
-    const themes = [
-      { key:'light', bg:'#EFEAE0' },
-      { key:'sepia', bg:'#E9DCC3' },
-      { key:'dark', bg:'#1B1B18' },
-    ];
-    themes.forEach(t => {
-      const sw = document.createElement('div');
-      sw.className = 'swatch' + (settings.theme===t.key ? ' active' : '');
-      sw.style.background = t.bg;
-      sw.title = t.key;
-      sw.onclick = async () => { settings.theme = t.key; applyTheme(); await storageSet('settings', settings); render(); };
-      swatches.appendChild(sw);
-    });
-    themeGrp.appendChild(swatches);
+    const progressGrp = document.createElement('div');
+    progressGrp.className = 'grp';
+    progressGrp.innerHTML = '<label>Progress</label>';
+    const resetBtn = document.createElement('button');
+    resetBtn.textContent = 'Reset chapter';
+    const currentPct = Math.round(progress.percents[meta.id] || 0);
+    resetBtn.disabled = currentPct <= 0;
+    resetBtn.title = currentPct > 0 ? ('Currently ' + currentPct + '% read') : 'No saved progress for this chapter';
+    resetBtn.onclick = async () => {
+      if (!confirm('Reset progress for this chapter?')) return;
+      delete progress.percents[meta.id];
+      if (progress.lastChapterId === meta.id) progress.lastChapterId = null;
+      await persistProfileState();
+      if (syncKey) await pushRemoteLibrary({ progressOnly:true });
+      window.scrollTo(0, 0);
+      render();
+    };
+    progressGrp.appendChild(resetBtn);
 
-    bar.append(fontGrp, sizeGrp, lineGrp, themeGrp);
+    bar.append(fontGrp, sizeGrp, lineGrp, progressGrp);
     return bar;
   }
 

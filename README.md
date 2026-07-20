@@ -5,9 +5,9 @@ A simple reading app with profile-based progress, dark mode, chapter management,
 ## Canonical app layout
 - Render deploys from the repository root.
 - The live backend is [server.js](c:/Users/izaiah/OneDrive/Desktop/projects/novel%20project/server.js).
-- The live frontend is [webapp/reader.html](c:/Users/izaiah/OneDrive/Desktop/projects/novel%20project/webapp/reader.html).
+- The live frontend is [reader.html](c:/Users/izaiah/OneDrive/Desktop/projects/novel%20project/reader.html).
 - [index.html](c:/Users/izaiah/OneDrive/Desktop/projects/novel%20project/index.html) redirects into the canonical frontend.
-- [reader.html](c:/Users/izaiah/OneDrive/Desktop/projects/novel%20project/reader.html) is a legacy entry point and now redirects to the canonical frontend as well.
+- Old `/webapp/...` links are preserved as redirects to the root frontend paths.
 
 ## Features
 - dark mode
@@ -27,5 +27,5 @@ npm start
 Then open the app at `http://localhost:3000/`.
 
 ## Notes
-- `webapp/reader.html` is the only frontend source file that should be edited for the deployed app.
+- `reader.html` is the only frontend source file that should be edited for the deployed app.
 - Root `server.js`, `render.yaml`, and `package.json` are the only deployment files used by Render.
