@@ -1370,20 +1370,42 @@
     updateSyncStatusChip();
     const remote = await loadRemoteLibrary(options);
     if (!remote || !Array.isArray(remote.index)) return false;
-    index = remote.index || [];
-    booksMeta = (remote.booksMeta && typeof remote.booksMeta === 'object') ? remote.booksMeta : {};
-    // Merge remote progress into active profile
-    const activeState = getActiveProfileState();
-    if (remote.progress) activeState.progress = remote.progress;
-    if (remote.settings) Object.assign(activeState.settings, remote.settings);
-    if (!(options && options.metaOnly)) {
+    if (routeBookSlug) {
+      const currentIndex = Array.isArray(index) ? index : [];
+      const currentBooksMeta = (booksMeta && typeof booksMeta === 'object') ? booksMeta : {};
+      const remoteIds = new Set(remote.index.map((ch) => ch && ch.id).filter(Boolean));
+      const mergedIndex = currentIndex.filter((ch) => !ch || !slugifyBookName(ch.book) || slugifyBookName(ch.book) !== routeBookSlug);
+      remote.index.forEach((entry) => {
+        if (entry && entry.id) {
+          const existingPos = mergedIndex.findIndex((ch) => ch && ch.id === entry.id);
+          if (existingPos >= 0) mergedIndex[existingPos] = entry;
+          else mergedIndex.push(entry);
+        }
+      });
+      index = mergedIndex;
+      booksMeta = Object.assign({}, currentBooksMeta, remote.booksMeta || {});
+      if (remote.chapters && typeof remote.chapters === 'object') {
+        for (const ch of remote.index) {
+          const data = remote.chapters[ch.id];
+          if (data) await storageSet('chapter:' + ch.id, data);
+        }
+      }
+      await storageSet('chapters-index', index);
+      await storageSet('books-meta', booksMeta);
+    } else {
+      index = remote.index || [];
+      booksMeta = (remote.booksMeta && typeof remote.booksMeta === 'object') ? remote.booksMeta : {};
       for (const ch of index){
         const data = remote.chapters && remote.chapters[ch.id];
         if (data) await storageSet('chapter:' + ch.id, data);
       }
+      await storageSet('chapters-index', index);
+      await storageSet('books-meta', booksMeta);
     }
-    await storageSet('chapters-index', index);
-    await storageSet('books-meta', booksMeta);
+    // Merge remote progress into active profile
+    const activeState = getActiveProfileState();
+    if (remote.progress) activeState.progress = remote.progress;
+    if (remote.settings) Object.assign(activeState.settings, remote.settings);
     await storageSet('profile-state', profileState);
     syncStatus = { state:'synced', at:Date.now(), message:'Pulled latest library from server' };
     remoteSyncPrimed = true;
