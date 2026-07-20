@@ -1068,6 +1068,8 @@
 
   async function syncFromRemote(){
     if (!syncKey) return false;
+    syncStatus = { state:'syncing', at:Date.now(), message:'Loading latest data from server' };
+    updateSyncStatusChip();
     const remote = await loadRemoteLibrary();
     if (!remote || !Array.isArray(remote.index)) return false;
     index = remote.index || [];
@@ -1132,13 +1134,19 @@
     activeProfileId = 'izaiah';
     if (routeBookSlug) view.booksCollapsed = true;
     setSyncKey(getSyncKeyFromUrl() || getStoredSyncKey());
-    if (syncKey) {
-      await syncFromRemote();
-    }
     applyTheme();
-    await persistProfileState();
     renderTopbar();
     render();
+
+    persistProfileState().catch((e) => {
+      console.warn('Initial profile state save failed', e);
+    });
+
+    if (syncKey) {
+      syncFromRemote().catch((e) => {
+        console.warn('Initial remote sync failed', e);
+      });
+    }
   }
 
   // ---------------------------------------------------------------
