@@ -873,6 +873,9 @@
   let pendingUploadBook = '';
   let pendingUploadVolume = '';
   let remoteSyncPrimed = false;
+  let syncInFlight = false;
+  let syncPending = false;
+  let lastSyncedPayloadSig = '';
   let pendingCoverDataUrl = null;
   let syncStatus = { state:'idle', at:0, message:'' };
 
@@ -1109,6 +1112,19 @@
     return { version:1, exportedAt:Date.now(), index, chapters, progress, settings, booksMeta };
   }
 
+  function hashString(str){
+    let h = 2166136261;
+    for (let i = 0; i < str.length; i++) {
+      h ^= str.charCodeAt(i);
+      h += (h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24);
+    }
+    return (h >>> 0).toString(16);
+  }
+
+  function payloadSignatureFromJson(jsonText){
+    return String(jsonText.length) + ':' + hashString(jsonText);
+  }
+
   async function loadRemoteLibrary(){
     if (!syncKey) return null;
     try {
@@ -1127,40 +1143,82 @@
 
   async function pushRemoteLibrary(){
     if (!syncKey) return false;
-    if (routeBookSlug && !remoteSyncPrimed) {
-      // Avoid destructive scoped overwrite if this route has not pulled remote data yet.
-      const pulled = await syncFromRemote();
-      if (!pulled) {
-        syncStatus = { state:'failed', at:Date.now(), message:'Scoped sync blocked until remote data loads' };
-        updateSyncStatusChip();
-        return false;
-      }
+    if (syncInFlight) {
+      syncPending = true;
+      return true;
     }
-    syncStatus = { state:'syncing', at:Date.now(), message:'Sync in progress' };
-    updateSyncStatusChip();
+
+    syncInFlight = true;
+    let overallOk = true;
     try {
-      const payload = await buildLibraryPayload();
-      const res = await fetch(SYNC_ENDPOINT, {
-        method:'POST',
-        headers:{
-          'Content-Type':'application/json',
-          'x-sync-key': syncKey,
-          ...(routeBookSlug ? { 'x-book-slug': routeBookSlug } : {}),
-        },
-        body: JSON.stringify(payload)
-      });
-      syncStatus = {
-        state: res.ok ? 'synced' : 'failed',
-        at: Date.now(),
-        message: res.ok ? 'Last sync saved to server' : 'Server rejected sync',
-      };
-      updateSyncStatusChip();
-      return res.ok;
+      do {
+        syncPending = false;
+
+        if (routeBookSlug && !remoteSyncPrimed) {
+          // Avoid destructive scoped overwrite if this route has not pulled remote data yet.
+          const pulled = await syncFromRemote();
+          if (!pulled) {
+            syncStatus = { state:'failed', at:Date.now(), message:'Scoped sync blocked until remote data loads' };
+            updateSyncStatusChip();
+            return false;
+          }
+        }
+
+        const payload = await buildLibraryPayload();
+        const missingChapterIds = (payload.index || [])
+          .map((ch) => ch && ch.id)
+          .filter((id) => id && !payload.chapters[id]);
+        if (missingChapterIds.length) {
+          syncStatus = {
+            state:'failed',
+            at: Date.now(),
+            message:'Sync blocked: ' + missingChapterIds.length + ' chapter(s) missing local content'
+          };
+          updateSyncStatusChip();
+          console.warn('Sync blocked due to missing local chapter content', missingChapterIds.slice(0, 20));
+          return false;
+        }
+        const payloadJson = JSON.stringify(payload);
+        const payloadSig = payloadSignatureFromJson(payloadJson);
+
+        if (payloadSig === lastSyncedPayloadSig) {
+          syncStatus = { state:'synced', at:Date.now(), message:'Already synced' };
+          updateSyncStatusChip();
+          continue;
+        }
+
+        syncStatus = { state:'syncing', at:Date.now(), message:'Sync in progress' };
+        updateSyncStatusChip();
+
+        const res = await fetch(SYNC_ENDPOINT, {
+          method:'POST',
+          headers:{
+            'Content-Type':'application/json',
+            'x-sync-key': syncKey,
+            ...(routeBookSlug ? { 'x-book-slug': routeBookSlug } : {}),
+          },
+          body: payloadJson
+        });
+
+        const ok = !!res.ok;
+        overallOk = overallOk && ok;
+        if (ok) lastSyncedPayloadSig = payloadSig;
+        syncStatus = {
+          state: ok ? 'synced' : 'failed',
+          at: Date.now(),
+          message: ok ? 'Last sync saved to server' : 'Server rejected sync',
+        };
+        updateSyncStatusChip();
+      } while (syncPending);
+
+      return overallOk;
     } catch (e) {
       console.warn('Remote sync save failed', e);
       syncStatus = { state:'failed', at:Date.now(), message:'Sync failed: ' + e.message };
       updateSyncStatusChip();
       return false;
+    } finally {
+      syncInFlight = false;
     }
   }
 
@@ -1185,6 +1243,7 @@
     await storageSet('profile-state', profileState);
     syncStatus = { state:'synced', at:Date.now(), message:'Pulled latest library from server' };
     remoteSyncPrimed = true;
+    lastSyncedPayloadSig = '';
     updateSyncStatusChip();
     applyTheme();
     render();

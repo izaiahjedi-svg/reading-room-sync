@@ -70,21 +70,33 @@ function mergeBookSlice(existing, incoming, slug) {
     booksMeta: Object.assign({}, base.booksMeta || {}),
   };
 
-  const removeIds = new Set();
-  next.index = next.index.filter((entry) => {
-    if (matchesBookSlug(entry && entry.book, slug)) {
-      if (entry && entry.id) removeIds.add(entry.id);
-      return false;
-    }
-    return true;
-  });
-  for (const id of removeIds) delete next.chapters[id];
-  for (const key of Object.keys(next.booksMeta)) {
-    if (matchesBookSlug(key, slug)) delete next.booksMeta[key];
+  const incomingIndex = Array.isArray(incoming && incoming.index) ? incoming.index : [];
+  const incomingIds = new Set(incomingIndex.map((entry) => entry && entry.id).filter(Boolean));
+
+  const existingBookEntries = next.index.filter((entry) => matchesBookSlug(entry && entry.book, slug));
+  next.index = next.index.filter((entry) => !matchesBookSlug(entry && entry.book, slug));
+
+  // Only remove chapter blobs that were explicitly removed from the incoming index.
+  for (const entry of existingBookEntries) {
+    if (entry && entry.id && !incomingIds.has(entry.id)) delete next.chapters[entry.id];
   }
 
-  const incomingIndex = Array.isArray(incoming && incoming.index) ? incoming.index : [];
+  const incomingMeta = (incoming && incoming.booksMeta) || {};
+  const shouldReplaceBookMeta = incomingIndex.length === 0 || Object.keys(incomingMeta).length > 0;
+  if (shouldReplaceBookMeta) {
+    for (const key of Object.keys(next.booksMeta)) {
+      if (matchesBookSlug(key, slug)) delete next.booksMeta[key];
+    }
+  }
+
   next.index.push(...incomingIndex);
+  // Preserve existing chapter content for incoming index IDs if client omitted some chapter bodies.
+  for (const entry of existingBookEntries) {
+    if (entry && entry.id && incomingIds.has(entry.id) && !((incoming && incoming.chapters) || {})[entry.id]) {
+      const existingChapter = (base.chapters || {})[entry.id];
+      if (existingChapter) next.chapters[entry.id] = existingChapter;
+    }
+  }
   Object.assign(next.chapters, (incoming && incoming.chapters) || {});
   Object.assign(next.booksMeta, (incoming && incoming.booksMeta) || {});
   return next;
