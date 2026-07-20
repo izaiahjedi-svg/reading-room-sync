@@ -125,6 +125,50 @@ function mergeBookSlice(existing, incoming, slug, replaceMode) {
   return next;
 }
 
+function mergeRootLibrary(existing, incoming, replaceMode) {
+  const base = existing && typeof existing === 'object' ? existing : {};
+  if (replaceMode) return incoming || {};
+
+  const next = {
+    version: incoming && incoming.version ? incoming.version : (base.version || 1),
+    exportedAt: incoming && incoming.exportedAt ? incoming.exportedAt : Date.now(),
+    index: Array.isArray(base.index) ? [...base.index] : [],
+    chapters: Object.assign({}, base.chapters || {}),
+    progress: incoming && incoming.progress ? incoming.progress : (base.progress || { lastChapterId: null, percents: {} }),
+    settings: incoming && incoming.settings ? Object.assign({}, base.settings || {}, incoming.settings) : (base.settings || {}),
+    booksMeta: Object.assign({}, base.booksMeta || {}),
+  };
+
+  const incomingIndex = Array.isArray(incoming && incoming.index) ? incoming.index : [];
+  const incomingChapters = (incoming && incoming.chapters) || {};
+
+  const byId = new Map();
+  const mergedIndex = [];
+  for (const entry of next.index) {
+    const id = entry && entry.id;
+    if (id && !byId.has(id)) {
+      byId.set(id, mergedIndex.length);
+      mergedIndex.push(entry);
+    } else if (!id) {
+      mergedIndex.push(entry);
+    }
+  }
+
+  for (const entry of incomingIndex) {
+    const id = entry && entry.id;
+    if (id && byId.has(id)) mergedIndex[byId.get(id)] = entry;
+    else {
+      if (id) byId.set(id, mergedIndex.length);
+      mergedIndex.push(entry);
+    }
+  }
+
+  next.index = mergedIndex;
+  Object.assign(next.chapters, incomingChapters);
+  Object.assign(next.booksMeta, (incoming && incoming.booksMeta) || {});
+  return next;
+}
+
 function keyFilePath(key) {
   const digest = crypto.createHash('sha256').update(key).digest('hex');
   return path.join(keyDir, digest + '.json');
@@ -212,7 +256,9 @@ app.post('/api/library', (req, res) => {
     writeKeyData(key, merged);
     return res.json({ ok: true, scoped: true, replaceMode });
   }
-  writeKeyData(key, req.body || {});
+  const existing = readKeyData(key) || readLegacyValue(key) || {};
+  const merged = mergeRootLibrary(existing, req.body || {}, replaceMode);
+  writeKeyData(key, merged);
   res.json({ ok: true });
 });
 
