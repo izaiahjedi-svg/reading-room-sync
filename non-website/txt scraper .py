@@ -6,15 +6,17 @@ import unicodedata
 import requests
 from bs4 import BeautifulSoup
 
-BOOK_NAME = "Shadow Slave"
+BOOK_NAME = "shadow slave update"
 BOOK_SLUG = "shadow-slave"
-BASE_URL = f"https://freewebnovel.com/novel/{BOOK_SLUG}/chapter-{{}}"
-MAX_CHAPTER = 95
+BASE_URL = "https://freewebnovel.com/novel/{BOOK_SLUG}/chapter-{{}}"
+MIN_CHAPTER = 2721
+MAX_CHAPTER = 3110
 
 # Add more ranges as needed. Chapters outside the known ranges will still be saved,
 # but they will go into the fallback "unassigned" folder.
 volumes = {
-    "v1": (1, 95),
+    "v11": (2721, 3000),
+    "v12": (3001, 3110),
 }
 
 OUTPUT_ROOT = os.path.join(os.path.dirname(__file__), BOOK_NAME)
@@ -110,10 +112,15 @@ def get_volume(ch):
 
 ensure_output_folders()
 
+if MIN_CHAPTER < 1:
+    raise ValueError("MIN_CHAPTER must be at least 1")
+if MIN_CHAPTER > MAX_CHAPTER:
+    raise ValueError("MIN_CHAPTER cannot be greater than MAX_CHAPTER")
+
 downloaded = 0
 misses = 0
 
-for chapter in range(1, MAX_CHAPTER + 1):
+for chapter in range(MIN_CHAPTER, MAX_CHAPTER + 1):
     filename = make_output_path(chapter)
 
     # resume support

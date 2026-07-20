@@ -8,6 +8,7 @@ A simple reading app with profile-based progress, dark mode, chapter management,
 - The live frontend is [reader.html](c:/Users/izaiah/OneDrive/Desktop/projects/novel%20project/reader.html).
 - [index.html](c:/Users/izaiah/OneDrive/Desktop/projects/novel%20project/index.html) redirects into the canonical frontend.
 - Old `/webapp/...` links are preserved as redirects to the root frontend paths.
+- Non-website files were moved under [non-website](c:/Users/izaiah/OneDrive/Desktop/projects/novel%20project/non-website).
 
 ## Features
 - dark mode
@@ -29,3 +30,4 @@ Then open the app at `http://localhost:3000/`.
 ## Notes
 - `reader.html` is the only frontend source file that should be edited for the deployed app.
 - Root `server.js`, `render.yaml`, and `package.json` are the only deployment files used by Render.
+- `ongoing_sync.py` stays at the repo root because [ongoing-sync.yml](c:/Users/izaiah/OneDrive/Desktop/projects/novel%20project/.github/workflows/ongoing-sync.yml) runs it from GitHub Actions.

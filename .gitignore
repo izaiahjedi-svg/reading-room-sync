@@ -21,6 +21,8 @@ dist/
 *.log
 progress.json
 settings.json
+non-website/shadow slave/
+non-website/shadow slave update/
 
 # IDE
 .vscode/
