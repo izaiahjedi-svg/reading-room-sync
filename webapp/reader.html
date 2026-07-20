@@ -190,6 +190,39 @@
   .book-actions{ display:flex; gap:6px; }
   .book-actions button{ flex:1; padding:6px 8px; font-size:12px; }
 
+  .book-page-header{
+    border:1px solid var(--line);
+    border-radius:6px;
+    background:var(--paper-raised);
+    box-shadow:var(--shadow);
+    padding:12px;
+    margin-bottom:14px;
+    display:flex;
+    gap:12px;
+    align-items:flex-start;
+  }
+  .book-page-cover,
+  .book-page-cover-fallback{
+    width:96px;
+    aspect-ratio:3 / 4;
+    border-radius:4px;
+    border:1px solid var(--line);
+    background:linear-gradient(135deg, var(--paper), var(--paper-raised));
+    flex:none;
+  }
+  .book-page-cover{ object-fit:cover; }
+  .book-page-cover-fallback{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    font-size:14px;
+    color:var(--ink-soft);
+  }
+  .book-page-meta{ min-width:0; flex:1; }
+  .book-page-title{ font-size:18px; font-weight:700; margin-bottom:4px; }
+  .book-page-sub{ font-size:12px; color:var(--ink-soft); margin-bottom:10px; }
+  .book-page-actions{ display:flex; gap:8px; flex-wrap:wrap; }
+
   .chapter-list{ list-style:none; margin:0; padding:0; border-top:1px solid var(--line); }
   .chapter-list.two-col{
     display:grid;
@@ -391,6 +424,10 @@
     .toolrow .inline-actions button{ flex:1; }
     .book-grid{ grid-template-columns:repeat(2, minmax(0, 1fr)); gap:10px; }
     .book-title{ white-space:normal; }
+    .book-page-header{ padding:10px; gap:10px; }
+    .book-page-cover,
+    .book-page-cover-fallback{ width:78px; }
+    .book-page-title{ font-size:16px; }
     .chapter-row{ gap:10px; padding:10px 4px; }
     .chapter-del{ opacity:1; }
     .reader-shell{ padding:0 12px 84px; }
@@ -868,6 +905,25 @@
     const parts = window.location.pathname.split('/').filter(Boolean);
     if (parts[0] === 'webapp') return '/webapp/' + slug + '/reader.html' + search;
     return '/' + slug + '/reader.html' + search;
+  }
+
+  function getMainLibraryPath(){
+    const search = window.location.search || '';
+    const parts = window.location.pathname.split('/').filter(Boolean);
+    if (parts[0] === 'webapp') return '/webapp/reader.html' + search;
+    return '/reader.html' + search;
+  }
+
+  function getRouteBookName(){
+    if (!routeBookSlug) return '';
+    const books = getAllBookNames();
+    const matched = books.find((name) => slugifyBookName(name) === routeBookSlug);
+    if (matched) return matched;
+    return routeBookSlug
+      .split('-')
+      .filter(Boolean)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(' ');
   }
 
   function esc(s){
@@ -1583,7 +1639,15 @@
     });
 
     if (view.mode === 'library'){
-      brandTitle.textContent = 'Reading Room';
+      if (routeBookSlug) {
+        brandTitle.textContent = '← All Books';
+        brandTitle.style.cursor = 'pointer';
+        brandTitle.onclick = () => { window.location.href = getMainLibraryPath(); };
+      } else {
+        brandTitle.textContent = 'Reading Room';
+        brandTitle.style.cursor = '';
+        brandTitle.onclick = null;
+      }
       const settings = getSettings();
       const darkBadge = document.createElement('button');
       darkBadge.className = 'subtle';
@@ -1622,9 +1686,16 @@
       syncStatusChip.title = syncStatus.message || 'Sync status';
       topbarActions.append(profileSwitcher, darkBadge, syncStatusChip, moreBtn, syncBtn, addBtn);
     } else {
-      brandTitle.textContent = '← Library';
+      brandTitle.textContent = routeBookSlug ? '← Book Page' : '← Library';
       brandTitle.style.cursor = 'pointer';
       brandTitle.onclick = () => { view.mode='library'; view.chapterId=null; renderTopbar(); render(); };
+      if (routeBookSlug){
+        const booksBtn = document.createElement('button');
+        booksBtn.className = 'subtle';
+        booksBtn.textContent = 'All Books';
+        booksBtn.onclick = () => { window.location.href = getMainLibraryPath(); };
+        topbarActions.appendChild(booksBtn);
+      }
       const listBtn = document.createElement('button');
       listBtn.className = 'icon-btn subtle';
       listBtn.title = 'Chapter list';
@@ -1955,79 +2026,91 @@
     const wrap = document.createElement('div');
     wrap.className = 'library-wrap';
 
+    const isBookPage = !!routeBookSlug;
+    const routeBookName = getRouteBookName();
+
     if (!index.length){
       wrap.innerHTML = `
         <div class="empty-state">
-          <div class="big">Your library is empty</div>
-          <div>Add the .txt chapter files from your computer to get started — pick individual files or a whole folder at once. They stay saved here — open this same page on your phone and they'll be waiting for you.</div>
+          <div class="big">${isBookPage ? 'This book has no chapters yet' : 'Your library is empty'}</div>
+          <div>${isBookPage ? 'Add chapters to this book, or return to the books page to create/manage other books.' : 'Add the .txt chapter files from your computer to get started — pick individual files or a whole folder at once. They stay saved here — open this same page on your phone and they\'ll be waiting for you.'}</div>
           <div style="margin-top:18px; display:flex; gap:10px; justify-content:center; flex-wrap:wrap;">
             <button class="primary" id="emptyAddBtn">+ Add chapter</button>
-            <button id="emptyBookBtn">+ Create book</button>
+            <button id="emptyBookBtn">${isBookPage ? 'Book settings' : '+ Create book'}</button>
+            ${isBookPage ? '<button id="emptyBackBtn">All books</button>' : ''}
           </div>
         </div>`;
       main.appendChild(wrap);
-      document.getElementById('emptyAddBtn').onclick = () => startAddChapter();
-      document.getElementById('emptyBookBtn').onclick = () => openBookManager('__new__');
+      document.getElementById('emptyAddBtn').onclick = () => startAddChapterToBook(routeBookName || '');
+      document.getElementById('emptyBookBtn').onclick = () => openBookManager(routeBookName || '__new__');
+      if (isBookPage) {
+        const backBtn = document.getElementById('emptyBackBtn');
+        if (backBtn) backBtn.onclick = () => { window.location.href = getMainLibraryPath(); };
+      }
       return;
     }
 
-    const progress = getProgress();
-    // Continue reading card
-    if (progress.lastChapterId && index.find(c => c.id === progress.lastChapterId)){
-      const ch = index.find(c => c.id === progress.lastChapterId);
-      const pct = Math.round(progress.percents[ch.id] || 0);
-      const card = document.createElement('div');
-      card.className = 'continue-card';
-      card.innerHTML = `
-        <div>
-          <div class="label">Continue reading</div>
-          <div class="title">${esc(ch.title)}</div>
-          <div class="pct">${pct}% through this chapter</div>
-        </div>
-        <button class="primary">Resume →</button>`;
-      card.querySelector('button').onclick = () => openChapter(ch.id, true);
-      wrap.appendChild(card);
+    if (!isBookPage){
+      renderBookGrid(wrap, index);
+      if (view.transferOpen){
+        const panel = document.createElement('div');
+        panel.className = 'continue-card';
+        panel.innerHTML = `
+          <div>
+            <div class="label">Move library to another device</div>
+            <div style="font-size:13px;color:var(--ink-soft);max-width:46ch;">
+              Export everything to one file here, then open this same reader on your other device and import it there.
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button id="exportBtn">Export library</button>
+            <button id="importBtn" class="primary">Import library</button>
+          </div>`;
+        wrap.appendChild(panel);
+        panel.querySelector('#exportBtn').onclick = exportLibrary;
+        panel.querySelector('#importBtn').onclick = () => importInput.click();
+      }
+      main.appendChild(wrap);
+      return;
     }
 
-    // toolrow: search
+    view.bookFilter = routeBookName || '';
+    view.chapterSort = 'book-volume-added';
+
+    const currentBook = routeBookName || (index[0] && index[0].book) || '';
+    const currentMeta = booksMeta[currentBook] || {};
+    const currentItems = index.filter(c => (c.book || '').trim() === currentBook);
+    const header = document.createElement('div');
+    header.className = 'book-page-header';
+    const coverHtml = currentMeta.coverDataUrl
+      ? `<img class="book-page-cover" src="${currentMeta.coverDataUrl}" alt="${esc(getBookLabel(currentBook))} cover" />`
+      : '<div class="book-page-cover-fallback">BOOK</div>';
+    header.innerHTML = `
+      ${coverHtml}
+      <div class="book-page-meta">
+        <div class="book-page-title">${esc(getBookLabel(currentBook))}</div>
+        <div class="book-page-sub">${currentItems.length} chapter${currentItems.length === 1 ? '' : 's'} • sorted by volume</div>
+        <div class="book-page-actions">
+          <button type="button" id="bookPageSettingsBtn">Book settings</button>
+          <button type="button" id="bookPageAddBtn" class="primary">+ Add chapters</button>
+          <button type="button" id="bookPageBackBtn">All books</button>
+        </div>
+      </div>`;
+    wrap.appendChild(header);
+    header.querySelector('#bookPageSettingsBtn').onclick = () => openBookManager(currentBook || '__new__');
+    header.querySelector('#bookPageAddBtn').onclick = () => startAddChapterToBook(currentBook || '');
+    header.querySelector('#bookPageBackBtn').onclick = () => { window.location.href = getMainLibraryPath(); };
+
     const toolrow = document.createElement('div');
     toolrow.className = 'toolrow';
-    toolrow.innerHTML = `
-      <input class="search-input" placeholder="Filter chapters…" value="${esc(view.search||'')}" />
-      <div class="inline-actions">
-        <button type="button" id="manageBookBtn">Manage books</button>
-        <button type="button" id="toggleBooksBtn">${view.booksCollapsed ? 'Show books' : 'Hide books'}</button>
-      </div>`;
-    const searchInput = toolrow.querySelector('input');
-    searchInput.oninput = (e) => { view.search = e.target.value; renderChapterList(list); };
-    toolrow.querySelector('#manageBookBtn').onclick = () => openBookManager(view.bookFilter || '');
-    toolrow.querySelector('#toggleBooksBtn').onclick = () => { view.booksCollapsed = !view.booksCollapsed; render(); };
+    toolrow.innerHTML = `<input class="search-input" placeholder="Filter chapters in this book…" value="${esc(view.search||'')}" />`;
     wrap.appendChild(toolrow);
-
-    if (!view.booksCollapsed) renderBookGrid(wrap, index);
-
-    if (view.transferOpen){
-      const panel = document.createElement('div');
-      panel.className = 'continue-card';
-      panel.innerHTML = `
-        <div>
-          <div class="label">Move library to another device</div>
-          <div style="font-size:13px;color:var(--ink-soft);max-width:46ch;">
-            Export everything to one file here, then open this same reader on your other device and import it there.
-          </div>
-        </div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          <button id="exportBtn">Export library</button>
-          <button id="importBtn" class="primary">Import library</button>
-        </div>`;
-      wrap.appendChild(panel);
-      panel.querySelector('#exportBtn').onclick = exportLibrary;
-      panel.querySelector('#importBtn').onclick = () => importInput.click();
-    }
 
     const list = document.createElement('div');
     list.id = 'chapterListContainer';
     wrap.appendChild(list);
+    const searchInput = toolrow.querySelector('input');
+    searchInput.oninput = (e) => { view.search = e.target.value; renderChapterList(list); };
     renderChapterList(list);
 
     main.appendChild(wrap);
@@ -2067,6 +2150,32 @@
     if (!items.length){
       const label = view.bookFilter ? (' in ' + getBookLabel(view.bookFilter)) : '';
       list.innerHTML = `<div style="padding:24px 4px;color:var(--ink-soft);">No chapters match "${esc(view.search)}"${esc(label)}.</div>`;
+      return;
+    }
+
+    if (routeBookSlug){
+      const volumes = [...new Set(items.map(c => c.volume || ''))];
+      if (volumes.length <= 1){
+        const ul = document.createElement('ul');
+        ul.className = 'chapter-list two-col';
+        items.forEach(ch => ul.appendChild(buildChapterRow(ch)));
+        list.appendChild(ul);
+        return;
+      }
+      volumes.forEach((vol) => {
+        const groupItems = items.filter(c => (c.volume || '') === vol);
+        const volDetails = document.createElement('details');
+        volDetails.className = 'volume-group';
+        volDetails.open = true;
+        const volSummary = document.createElement('summary');
+        volSummary.textContent = vol || 'Chapters';
+        volDetails.appendChild(volSummary);
+        const ul = document.createElement('ul');
+        ul.className = 'chapter-list nested two-col';
+        groupItems.forEach(ch => ul.appendChild(buildChapterRow(ch)));
+        volDetails.appendChild(ul);
+        list.appendChild(volDetails);
+      });
       return;
     }
 
