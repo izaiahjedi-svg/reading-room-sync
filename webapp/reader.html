@@ -961,13 +961,50 @@
 
   const routeBookSlug = getRouteBookSlug();
 
-  function isLibraryScopedKey(key){
+  function isSharedLibraryKey(key){
     return key === 'chapters-index' || key === 'books-meta' || key.startsWith('chapter:');
   }
 
   function scopeLibraryKey(key){
-    if (!routeBookSlug || !isLibraryScopedKey(key)) return key;
-    return 'book:' + routeBookSlug + ':' + key;
+    return key;
+  }
+
+  async function getScopedStorageValue(key, scopeSlug){
+    if (!scopeSlug || !isSharedLibraryKey(key)) return null;
+    try {
+      const raw = await window.storage.get('book:' + scopeSlug + ':' + key, false);
+      return raw ? JSON.parse(raw.value) : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  async function migrateScopedLibraryToGlobal(scopeSlug){
+    if (!scopeSlug) return;
+    const existingGlobalIndex = await storageGet('chapters-index');
+    if (Array.isArray(existingGlobalIndex) && existingGlobalIndex.length) return;
+
+    const scopedIndex = await getScopedStorageValue('chapters-index', scopeSlug);
+    if (!Array.isArray(scopedIndex) || !scopedIndex.length) return;
+
+    const scopedBooksMeta = await getScopedStorageValue('books-meta', scopeSlug);
+    const scopedProfiles = await getScopedStorageValue('profiles-data', scopeSlug);
+    const scopedProfileState = await getScopedStorageValue('profile-state', scopeSlug);
+    const scopedProgress = await getScopedStorageValue('progress', scopeSlug);
+    const scopedSettings = await getScopedStorageValue('settings', scopeSlug);
+
+    await storageSet('chapters-index', scopedIndex);
+    if (scopedBooksMeta && typeof scopedBooksMeta === 'object') await storageSet('books-meta', scopedBooksMeta);
+    if (scopedProfiles && typeof scopedProfiles === 'object') await storageSet('profiles-data', scopedProfiles);
+    if (scopedProfileState && typeof scopedProfileState === 'object') await storageSet('profile-state', scopedProfileState);
+    if (scopedProgress && typeof scopedProgress === 'object') await storageSet('progress', scopedProgress);
+    if (scopedSettings && typeof scopedSettings === 'object') await storageSet('settings', scopedSettings);
+
+    for (const entry of scopedIndex) {
+      if (!entry || !entry.id) continue;
+      const chapter = await getScopedStorageValue('chapter:' + entry.id, scopeSlug);
+      if (chapter) await storageSet('chapter:' + entry.id, chapter);
+    }
   }
 
   function slugifyBookName(name){
@@ -1458,6 +1495,9 @@
   // Init
   // ---------------------------------------------------------------
   async function init(){
+    if (routeBookSlug) {
+      await migrateScopedLibraryToGlobal(routeBookSlug);
+    }
     const [idx, profilesData, profileStateData, booksMetaData] = await Promise.all([
       storageGet('chapters-index'),
       storageGet('profiles-data'),
