@@ -875,6 +875,7 @@
   let remoteSyncPrimed = false;
   let syncInFlight = false;
   let syncPending = false;
+  let syncPendingReplace = false;
   let lastSyncedPayloadSig = '';
   let pendingCoverDataUrl = null;
   let syncStatus = { state:'idle', at:0, message:'' };
@@ -1159,18 +1160,23 @@
     }
   }
 
-  async function pushRemoteLibrary(){
+  async function pushRemoteLibrary(options){
+    const forceReplace = !!(options && options.forceReplace);
     if (!syncKey) return false;
     if (syncInFlight) {
       syncPending = true;
+      if (forceReplace) syncPendingReplace = true;
       return true;
     }
 
     syncInFlight = true;
+    if (forceReplace) syncPendingReplace = true;
     let overallOk = true;
     try {
       do {
         syncPending = false;
+        const replaceThisCycle = !!syncPendingReplace;
+        syncPendingReplace = false;
 
         if (routeBookSlug && !remoteSyncPrimed) {
           // Avoid destructive scoped overwrite if this route has not pulled remote data yet.
@@ -1222,6 +1228,7 @@
             'Content-Type':'application/json',
             'x-sync-key': syncKey,
             ...(routeBookSlug ? { 'x-book-slug': routeBookSlug } : {}),
+            ...(replaceThisCycle ? { 'x-sync-replace': '1' } : {}),
           },
           body: payloadJson
         });
@@ -1621,7 +1628,7 @@
     if (progress.percents[id] != null) delete progress.percents[id];
     if (progress.lastChapterId === id) progress.lastChapterId = null;
     await persistProfileState();
-    if (syncKey) await pushRemoteLibrary();
+    if (syncKey) await pushRemoteLibrary({ forceReplace:true });
     render();
   }
 
@@ -1796,7 +1803,7 @@
       applyTheme();
     }
     await persistProfileState();
-    if (syncKey) await pushRemoteLibrary();
+    if (syncKey) await pushRemoteLibrary(mode === 'replace' ? { forceReplace:true } : undefined);
     view.transferOpen = false;
     render();
     alert('Imported ' + added + ' chapter(s).');
@@ -2039,7 +2046,7 @@
     newOpt.textContent = '+ New book';
     picker.appendChild(newOpt);
 
-    picker.value = books.includes(prefillBook || '') ? (prefillBook || '') : books[0] || '__new__';
+    picker.value = books.includes(prefillBook || '') ? (prefillBook || '') : '__new__';
     sortSelect.value = view.chapterSort || 'book-volume-added';
 
     function getVolumesForBook(bookKey){
@@ -2188,7 +2195,7 @@
       await storageSet('chapters-index', index);
       await persistBooksMeta();
       await persistProfileState();
-      if (syncKey) await pushRemoteLibrary();
+      if (syncKey) await pushRemoteLibrary({ forceReplace:true });
       close();
       render();
     };
@@ -2248,7 +2255,15 @@
         targetKey = nextTitle;
       }
 
+      if (selected === '__new__' && booksMeta[nextTitle]) {
+        alert('A book with that name already exists. Pick it from the list to edit it.');
+        return;
+      }
+
       if (selected && selected !== '__new__' && selected !== nextTitle){
+        const currentLabel = getBookLabel(selected);
+        const ok = confirm('Rename book "' + currentLabel + '" to "' + nextTitle + '"?');
+        if (!ok) return;
         index.forEach(ch => {
           if ((ch.book || '').trim() === selected) ch.book = nextTitle;
         });
