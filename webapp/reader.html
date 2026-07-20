@@ -269,6 +269,7 @@
     border:1px solid color-mix(in srgb, var(--line) 60%, transparent);
   }
   .volume-progress-fill{
+    display:block;
     height:100%;
     background:var(--brass);
     border-radius:inherit;
@@ -2608,6 +2609,10 @@
     }
 
     if (routeBookSlug){
+      const progress = getProgress();
+      const activeChapterId = progress.lastChapterId && items.some((ch) => ch.id === progress.lastChapterId)
+        ? progress.lastChapterId
+        : null;
       const volumes = [...new Set(items.map(c => c.volume || ''))];
       if (volumes.length <= 1){
         const ul = document.createElement('ul');
@@ -2624,7 +2629,7 @@
           : 0;
         const volDetails = document.createElement('details');
         volDetails.className = 'volume-group';
-        volDetails.open = false;
+        volDetails.open = !!(activeChapterId && groupItems.some((ch) => ch.id === activeChapterId));
         const volSummary = document.createElement('summary');
         volSummary.innerHTML = `
           <span class="volume-summary-text">${esc(vol || 'Chapters')}</span>
