@@ -12,7 +12,7 @@ const legacyDataFile = path.join(dataDir, 'library.json');
 if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
 if (!fs.existsSync(keyDir)) fs.mkdirSync(keyDir, { recursive: true });
 
-app.use(express.json({ limit: '40mb' }));
+app.use(express.json({ limit: '200mb' }));
 app.use(express.static(__dirname));
 
 function slugifyBookName(name) {

@@ -1259,7 +1259,7 @@
   coverInput.addEventListener('change', async (e) => {
     const file = (e.target.files && e.target.files[0]) ? e.target.files[0] : null;
     if (!file) return;
-    pendingCoverDataUrl = await readFileAsDataUrl(file);
+    pendingCoverDataUrl = await readCoverAsDataUrl(file);
     renderBookCoverPreview();
     coverInput.value = '';
   });
@@ -1433,6 +1433,39 @@
       reader.onerror = () => reject(reader.error);
       reader.readAsDataURL(file);
     });
+  }
+
+  async function readCoverAsDataUrl(file){
+    const sourceDataUrl = await readFileAsDataUrl(file);
+    let image;
+    try {
+      image = await new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error('Invalid image file'));
+        img.src = sourceDataUrl;
+      });
+    } catch (e) {
+      return sourceDataUrl;
+    }
+
+    const maxWidth = 720;
+    const maxHeight = 1080;
+    const scale = Math.min(1, maxWidth / image.width, maxHeight / image.height);
+    const targetWidth = Math.max(1, Math.round(image.width * scale));
+    const targetHeight = Math.max(1, Math.round(image.height * scale));
+
+    const canvas = document.createElement('canvas');
+    canvas.width = targetWidth;
+    canvas.height = targetHeight;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return sourceDataUrl;
+
+    ctx.drawImage(image, 0, 0, targetWidth, targetHeight);
+
+    const jpeg = canvas.toDataURL('image/jpeg', 0.82);
+    if (typeof jpeg === 'string' && jpeg.length > 1000) return jpeg;
+    return sourceDataUrl;
   }
 
   function showUploadProgress(total){
