@@ -1126,6 +1126,12 @@
     return String(jsonText.length) + ':' + hashString(jsonText);
   }
 
+  function payloadSignatureFromPayload(payload){
+    // exportedAt changes every build and should not force a fresh sync by itself.
+    const stable = Object.assign({}, payload, { exportedAt: 0 });
+    return payloadSignatureFromJson(JSON.stringify(stable));
+  }
+
   async function loadRemoteLibrary(){
     if (!syncKey) return null;
     try {
@@ -1172,6 +1178,7 @@
     syncInFlight = true;
     if (forceReplace) syncPendingReplace = true;
     let overallOk = true;
+    let recoveryAttempted = false;
     try {
       do {
         syncPending = false;
@@ -1197,7 +1204,8 @@
           .filter((id) => id && !payload.chapters[id]);
         if (missingChapterIds.length) {
           console.warn('Sync blocked due to missing local chapter content', missingChapterIds.slice(0, 20));
-          const pulled = await syncFromRemote();
+          const pulled = !recoveryAttempted && await syncFromRemote();
+          recoveryAttempted = true;
           if (pulled) {
             syncPending = true;
             continue;
@@ -1211,7 +1219,7 @@
           return false;
         }
         const payloadJson = JSON.stringify(payload);
-        const payloadSig = payloadSignatureFromJson(payloadJson);
+        const payloadSig = payloadSignatureFromPayload(payload);
 
         if (payloadSig === lastSyncedPayloadSig) {
           syncStatus = { state:'synced', at:Date.now(), message:'Already synced' };
