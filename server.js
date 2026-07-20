@@ -207,6 +207,45 @@ function readLegacyValue(key) {
   }
 }
 
+function normalizeProfileId(value) {
+  const id = (value || '').toString().trim().toLowerCase();
+  return id || 'izaiah';
+}
+
+function readUnifiedData(key) {
+  return readKeyData(key) || readLegacyValue(key) || {};
+}
+
+function getProfileState(data, profileId) {
+  const pid = normalizeProfileId(profileId);
+  const stateProfiles = (data && typeof data.stateProfiles === 'object' && data.stateProfiles) || {};
+  const existing = (stateProfiles[pid] && typeof stateProfiles[pid] === 'object') ? stateProfiles[pid] : null;
+  const progress = (existing && existing.progress) || data.progress || { lastChapterId: null, percents: {} };
+  const settings = (existing && existing.settings) || data.settings || {};
+  const updatedAt = (existing && existing.updatedAt) || 0;
+  return { profileId: pid, progress, settings, updatedAt };
+}
+
+function mergeProfileState(data, profileId, incoming) {
+  const base = (data && typeof data === 'object') ? data : {};
+  const pid = normalizeProfileId(profileId);
+  const stateProfiles = Object.assign({}, (base && base.stateProfiles) || {});
+  const prev = (stateProfiles[pid] && typeof stateProfiles[pid] === 'object') ? stateProfiles[pid] : {};
+  const next = {
+    progress: (incoming && incoming.progress) || prev.progress || { lastChapterId: null, percents: {} },
+    settings: (incoming && incoming.settings)
+      ? Object.assign({}, prev.settings || {}, incoming.settings)
+      : (prev.settings || {}),
+    updatedAt: Date.now(),
+  };
+  stateProfiles[pid] = next;
+  return Object.assign({}, base, {
+    version: (incoming && incoming.version) || base.version || 1,
+    exportedAt: (incoming && incoming.exportedAt) || Date.now(),
+    stateProfiles,
+  });
+}
+
 app.get('/api/library', (req, res) => {
   const key = (req.query.key || '').trim();
   const bookSlug = (req.query.book || '').trim().toLowerCase();
@@ -231,6 +270,24 @@ app.get('/api/library', (req, res) => {
     return res.json({ data: meta });
   }
   res.json({ data: data || null });
+});
+
+app.get('/api/state', (req, res) => {
+  const key = (req.query.key || '').toString().trim();
+  const profileId = normalizeProfileId(req.query.profile || 'izaiah');
+  if (!key) return res.status(400).json({ error: 'Missing sync key' });
+  const data = readUnifiedData(key);
+  return res.json({ data: getProfileState(data, profileId) });
+});
+
+app.post('/api/state', (req, res) => {
+  const key = (req.headers['x-sync-key'] || '').toString().trim();
+  const profileId = normalizeProfileId(req.headers['x-profile-id'] || 'izaiah');
+  if (!key) return res.status(400).json({ error: 'Missing sync key' });
+  const data = readUnifiedData(key);
+  const next = mergeProfileState(data, profileId, req.body || {});
+  writeKeyData(key, next);
+  return res.json({ ok: true, profileId });
 });
 
 app.post('/api/library', (req, res) => {

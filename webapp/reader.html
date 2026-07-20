@@ -946,6 +946,7 @@
   let syncKey = '';
   const SYNC_KEY_STORAGE_KEY = 'reading-room:sync-key';
   const SYNC_ENDPOINT = '/api/library';
+  const STATE_ENDPOINT = '/api/state';
 
   function getRouteBookSlug(){
     const parts = window.location.pathname.split('/').filter(Boolean);
@@ -1138,7 +1139,7 @@
     clearTimeout(settingsSaveTimer);
     settingsSaveTimer = setTimeout(async () => {
       await persistProfileState();
-      if (syncKey) await pushRemoteLibrary({ progressOnly:true });
+      if (syncKey) await pushRemoteState(activeProfileId);
     }, 250);
   }
 
@@ -1156,7 +1157,7 @@
     return [...merged].sort((a, b) => getBookLabel(a).localeCompare(getBookLabel(b)));
   }
 
-  function switchProfile(profileId){
+  async function switchProfile(profileId){
     if (!profiles[profileId]) return;
     activeProfileId = profileId;
     if (!profileState[profileId]) {
@@ -1165,8 +1166,11 @@
         settings: getDefaultProfileSettings()
       };
     }
+    if (syncKey) {
+      await syncStateFromRemote(profileId);
+    }
     applyTheme();
-    persistProfileState();
+    await persistProfileState();
     renderTopbar();
     render();
   }
@@ -1262,6 +1266,66 @@
     return payloadSignatureFromJson(JSON.stringify(stable));
   }
 
+  async function loadRemoteState(profileId){
+    if (!syncKey) return null;
+    try {
+      const pid = (profileId || activeProfileId || 'izaiah').toString().trim().toLowerCase();
+      const url = new URL(STATE_ENDPOINT, window.location.origin);
+      url.searchParams.set('key', syncKey);
+      url.searchParams.set('profile', pid);
+      const res = await fetch(url.toString());
+      if (!res.ok) return null;
+      const payload = await res.json();
+      return payload && payload.data ? payload.data : null;
+    } catch (e) {
+      console.warn('Remote state load failed', e);
+      return null;
+    }
+  }
+
+  async function pushRemoteState(profileId){
+    if (!syncKey) return false;
+    try {
+      const pid = (profileId || activeProfileId || 'izaiah').toString().trim().toLowerCase();
+      const state = getActiveProfileState();
+      const body = {
+        version: 1,
+        exportedAt: Date.now(),
+        progress: state.progress || { lastChapterId: null, percents: {} },
+        settings: state.settings || {},
+      };
+      const res = await fetch(STATE_ENDPOINT, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-sync-key': syncKey,
+          'x-profile-id': pid,
+        },
+        body: JSON.stringify(body),
+      });
+      return !!res.ok;
+    } catch (e) {
+      console.warn('Remote state save failed', e);
+      return false;
+    }
+  }
+
+  async function syncStateFromRemote(profileId){
+    const pid = (profileId || activeProfileId || 'izaiah').toString().trim().toLowerCase();
+    const remoteState = await loadRemoteState(pid);
+    if (!remoteState || typeof remoteState !== 'object') return false;
+    if (!profileState[pid]) {
+      profileState[pid] = {
+        progress: { lastChapterId:null, percents:{} },
+        settings: getDefaultProfileSettings()
+      };
+    }
+    if (remoteState.progress) profileState[pid].progress = remoteState.progress;
+    if (remoteState.settings) Object.assign(profileState[pid].settings, remoteState.settings);
+    await storageSet('profile-state', profileState);
+    return true;
+  }
+
   async function loadRemoteLibrary(options){
     if (!syncKey) return null;
     try {
@@ -1300,6 +1364,16 @@
   async function pushRemoteLibrary(options){
     const forceReplace = !!(options && options.forceReplace);
     const progressOnly = !!(options && options.progressOnly);
+    if (progressOnly) {
+      const ok = await pushRemoteState(activeProfileId);
+      syncStatus = {
+        state: ok ? 'synced' : 'failed',
+        at: Date.now(),
+        message: ok ? 'Profile state synced' : 'Profile state sync failed',
+      };
+      updateSyncStatusChip();
+      return ok;
+    }
     if (!syncKey) return false;
     if (syncInFlight) {
       syncPending = true;
@@ -1459,10 +1533,6 @@
       await storageSet('chapters-index', index);
       await storageSet('books-meta', booksMeta);
     }
-    // Merge remote progress into active profile
-    const activeState = getActiveProfileState();
-    if (remote.progress) activeState.progress = remote.progress;
-    if (remote.settings) Object.assign(activeState.settings, remote.settings);
     await storageSet('profile-state', profileState);
     syncStatus = { state:'synced', at:Date.now(), message:'Pulled latest library from server' };
     remoteSyncPrimed = true;
@@ -1486,6 +1556,7 @@
       } else {
         await syncFromRemote({ metaOnly:true });
       }
+      await syncStateFromRemote(activeProfileId);
     }
     renderTopbar();
     return !!syncKey;
@@ -1537,6 +1608,10 @@
       const syncTask = routeBookSlug ? syncFromRemote() : syncFromRemote({ metaOnly:true });
       syncTask.catch((e) => {
         console.warn('Initial remote sync failed', e);
+      });
+      const stateTask = syncStateFromRemote(activeProfileId);
+      stateTask.catch((e) => {
+        console.warn('Initial remote state sync failed', e);
       });
     }
   }
