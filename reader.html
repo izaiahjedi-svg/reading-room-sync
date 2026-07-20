@@ -586,7 +586,16 @@
     return syncKey;
   }
 
-  async function buildLibraryPayload(){
+  async function buildLibraryPayload(options){
+    const progressOnly = !!(options && options.progressOnly);
+    if (progressOnly) {
+      return {
+        version: 1,
+        exportedAt: Date.now(),
+        progress,
+        settings,
+      };
+    }
     const chapters = {};
     for (const ch of index){
       const data = await storageGet('chapter:' + ch.id);
@@ -610,13 +619,18 @@
     }
   }
 
-  async function pushRemoteLibrary(){
+  async function pushRemoteLibrary(options){
+    const progressOnly = !!(options && options.progressOnly);
     if (!syncKey) return false;
     try {
-      const payload = await buildLibraryPayload();
+      const payload = await buildLibraryPayload({ progressOnly });
       const res = await fetch(SYNC_ENDPOINT, {
         method:'POST',
-        headers:{'Content-Type':'application/json', 'x-sync-key': syncKey},
+        headers:{
+          'Content-Type':'application/json',
+          'x-sync-key': syncKey,
+          ...(progressOnly ? { 'x-sync-partial': 'progress' } : {}),
+        },
         body: JSON.stringify(payload)
       });
       return res.ok;
@@ -722,7 +736,7 @@
       }
     }
     if (syncKey) {
-      await pushRemoteLibrary();
+      await pushRemoteLibrary({ progressOnly:true });
     }
     if (progressLabel) progressLabel(null);
     inputEl.value = '';
@@ -782,7 +796,7 @@
     if (progress.percents[id] != null) delete progress.percents[id];
     if (progress.lastChapterId === id) progress.lastChapterId = null;
     await storageSet('progress', progress);
-    if (syncKey) await pushRemoteLibrary();
+    if (syncKey) await pushRemoteLibrary({ progressOnly:true });
     render();
   }
 
@@ -860,7 +874,7 @@
       await storageSet('settings', settings);
       applyTheme();
     }
-    if (syncKey) await pushRemoteLibrary();
+    if (syncKey) await pushRemoteLibrary({ progressOnly:true });
     view.transferOpen = false;
     render();
     alert('Imported ' + added + ' chapter(s).');
@@ -1195,6 +1209,7 @@
         progress.lastChapterId = meta.id;
         progress.percents[meta.id] = p;
         await storageSet('progress', progress);
+        if (syncKey) await pushRemoteLibrary({ progressOnly:true });
       }, 700);
     }
     window.addEventListener('scroll', onScroll, { passive:true });
