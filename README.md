@@ -1,24 +1,31 @@
-<<<<<<< HEAD
 # Reading Room Sync
 
-Simple Node/Express app for sharing imported chapters across devices.
-=======
-# Reading Room Sync
+A simple reading app with profile-based progress, dark mode, chapter management, and device sync.
 
-A simple reading app with profile-based progress, dark mode, chapter management, and sync-friendly storage.
+## Canonical app layout
+- Render deploys from the repository root.
+- The live backend is [server.js](c:/Users/izaiah/OneDrive/Desktop/projects/novel%20project/server.js).
+- The live frontend is [webapp/reader.html](c:/Users/izaiah/OneDrive/Desktop/projects/novel%20project/webapp/reader.html).
+- [index.html](c:/Users/izaiah/OneDrive/Desktop/projects/novel%20project/index.html) redirects into the canonical frontend.
+- [reader.html](c:/Users/izaiah/OneDrive/Desktop/projects/novel%20project/reader.html) is a legacy entry point and now redirects to the canonical frontend as well.
 
 ## Features
 - dark mode
 - profile switching
 - per-profile reading preferences
 - chapter title editing and import
-- local storage / sync-ready structure
+- cross-device sync for library metadata, profile state, covers, and chapter bodies
 
 ## Run locally
-Open the app in a browser from the project folder:
+Start the server from the repository root:
 
-- [reader web/reader.html](reader%20web/reader.html)
+```bash
+npm install
+npm start
+```
+
+Then open the app at `http://localhost:3000/`.
 
 ## Notes
-This project is intended for local use and experimentation.
->>>>>>> 42116c6 (Initial commit)
+- `webapp/` is the active frontend copy.
+- `reader web/` is a legacy duplicate kept for reference and is not the Render entry point.

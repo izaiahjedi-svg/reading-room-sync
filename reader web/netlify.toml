@@ -1,7 +1,2 @@
-<<<<<<< HEAD
 [build]
   publish = "."
-=======
-[build]
-  publish = "."
->>>>>>> 42116c6 (Initial commit)
