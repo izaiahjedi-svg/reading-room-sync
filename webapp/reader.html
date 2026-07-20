@@ -1141,6 +1141,24 @@
     }
   }
 
+  async function canPrimeScopedSyncFromRemote(){
+    if (!syncKey || !routeBookSlug) return false;
+    try {
+      const url = new URL(SYNC_ENDPOINT, window.location.origin);
+      url.searchParams.set('key', syncKey);
+      url.searchParams.set('book', routeBookSlug);
+      const res = await fetch(url.toString());
+      if (!res.ok) return false;
+      const payload = await res.json();
+      const data = payload && Object.prototype.hasOwnProperty.call(payload, 'data') ? payload.data : null;
+      if (data && !Array.isArray(data.index)) return false;
+      remoteSyncPrimed = true;
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
   async function pushRemoteLibrary(){
     if (!syncKey) return false;
     if (syncInFlight) {
@@ -1158,9 +1176,12 @@
           // Avoid destructive scoped overwrite if this route has not pulled remote data yet.
           const pulled = await syncFromRemote();
           if (!pulled) {
-            syncStatus = { state:'failed', at:Date.now(), message:'Scoped sync blocked until remote data loads' };
-            updateSyncStatusChip();
-            return false;
+            const primed = await canPrimeScopedSyncFromRemote();
+            if (!primed) {
+              syncStatus = { state:'failed', at:Date.now(), message:'Scoped sync blocked until remote data loads' };
+              updateSyncStatusChip();
+              return false;
+            }
           }
         }
 
