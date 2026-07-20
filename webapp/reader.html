@@ -978,7 +978,7 @@
   function getSyncStatusText(){
     if (!syncKey) return 'Local only';
     if (syncStatus.state === 'syncing') return 'Syncing...';
-    if (syncStatus.state === 'failed') return 'Sync failed';
+    if (syncStatus.state === 'failed') return syncStatus.message || 'Sync failed';
     if (syncStatus.state === 'synced') {
       const at = formatSyncTime(syncStatus.at);
       return at ? ('Synced ' + at) : 'Synced';
@@ -1169,13 +1169,18 @@
           .map((ch) => ch && ch.id)
           .filter((id) => id && !payload.chapters[id]);
         if (missingChapterIds.length) {
+          console.warn('Sync blocked due to missing local chapter content', missingChapterIds.slice(0, 20));
+          const pulled = await syncFromRemote();
+          if (pulled) {
+            syncPending = true;
+            continue;
+          }
           syncStatus = {
             state:'failed',
             at: Date.now(),
-            message:'Sync blocked: ' + missingChapterIds.length + ' chapter(s) missing local content'
+            message:'Sync blocked: missing local chapter content'
           };
           updateSyncStatusChip();
-          console.warn('Sync blocked due to missing local chapter content', missingChapterIds.slice(0, 20));
           return false;
         }
         const payloadJson = JSON.stringify(payload);
