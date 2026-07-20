@@ -866,7 +866,7 @@
       settings: { font:'Georgia, "Iowan Old Style", serif', fontSize:19, lineHeight:1.7, theme:'dark' }
     }
   };
-  let view = { mode:'library', chapterId:null, search:'', bookFilter:'', chapterSort:'book-volume-added', booksCollapsed:false };
+  let view = { mode:'library', chapterId:null, search:'', bookFilter:'', chapterSort:'book-volume-added', booksCollapsed:false, debugOpen:false };
   let saveTimer = null;
   let settingsSaveTimer = null;
   let pendingChapterTitle = '';
@@ -877,6 +877,18 @@
   let syncPending = false;
   let syncPendingReplace = false;
   let lastSyncedPayloadSig = '';
+  let syncDebug = {
+    attempts: 0,
+    successes: 0,
+    failures: 0,
+    lastReason: '',
+    lastError: '',
+    lastPayloadBytes: 0,
+    lastDurationMs: 0,
+    lastAt: 0,
+    recoveryAttempts: 0,
+  };
+  let mainPageDebug = { loading:false, data:null, error:'' };
   let pendingCoverDataUrl = null;
   let syncStatus = { state:'idle', at:0, message:'' };
 
@@ -974,6 +986,13 @@
     } catch (e) {
       return '';
     }
+  }
+
+  function formatBytes(bytes){
+    const n = Number(bytes) || 0;
+    if (n < 1024) return n + ' B';
+    if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+    return (n / (1024 * 1024)).toFixed(2) + ' MB';
   }
 
   function getSyncStatusText(){
@@ -1113,6 +1132,41 @@
     return { version:1, exportedAt:Date.now(), index, chapters, progress, settings, booksMeta };
   }
 
+  async function collectMainPageDebugData(){
+    const payload = await buildLibraryPayload();
+    const payloadJson = JSON.stringify(payload);
+    const keysRes = await window.storage.list('');
+    const keys = (keysRes && keysRes.keys) ? keysRes.keys : [];
+    const scopedKeys = keys.filter((k) => /^book:[^:]+:/.test(k));
+    const globalKeys = keys.filter((k) => !/^book:[^:]+:/.test(k));
+    const missingChapterCount = (payload.index || []).filter((ch) => ch && ch.id && !payload.chapters[ch.id]).length;
+    return {
+      books: getAllBookNames(index).length,
+      chapters: index.length,
+      payloadBytes: payloadJson.length,
+      chapterBodies: Object.keys(payload.chapters || {}).length,
+      missingChapterCount,
+      keysTotal: keys.length,
+      keysScoped: scopedKeys.length,
+      keysGlobal: globalKeys.length,
+    };
+  }
+
+  async function refreshMainPageDebug(){
+    if (routeBookSlug) return;
+    mainPageDebug.loading = true;
+    mainPageDebug.error = '';
+    render();
+    try {
+      mainPageDebug.data = await collectMainPageDebugData();
+    } catch (e) {
+      mainPageDebug.error = e && e.message ? e.message : 'Unable to collect debug info';
+    } finally {
+      mainPageDebug.loading = false;
+      render();
+    }
+  }
+
   function hashString(str){
     let h = 2166136261;
     for (let i = 0; i < str.length; i++) {
@@ -1191,6 +1245,9 @@
           if (!pulled) {
             const primed = await canPrimeScopedSyncFromRemote();
             if (!primed) {
+              syncDebug.failures++;
+              syncDebug.lastReason = 'Scoped sync blocked until remote data loads';
+              syncDebug.lastAt = Date.now();
               syncStatus = { state:'failed', at:Date.now(), message:'Scoped sync blocked until remote data loads' };
               updateSyncStatusChip();
               return false;
@@ -1205,11 +1262,15 @@
         if (missingChapterIds.length) {
           console.warn('Sync blocked due to missing local chapter content', missingChapterIds.slice(0, 20));
           const pulled = !recoveryAttempted && await syncFromRemote();
+          syncDebug.recoveryAttempts += pulled ? 1 : 0;
           recoveryAttempted = true;
           if (pulled) {
             syncPending = true;
             continue;
           }
+          syncDebug.failures++;
+          syncDebug.lastReason = 'Sync blocked: missing local chapter content';
+          syncDebug.lastAt = Date.now();
           syncStatus = {
             state:'failed',
             at: Date.now(),
@@ -1220,8 +1281,11 @@
         }
         const payloadJson = JSON.stringify(payload);
         const payloadSig = payloadSignatureFromPayload(payload);
+        syncDebug.lastPayloadBytes = payloadJson.length;
 
         if (payloadSig === lastSyncedPayloadSig) {
+          syncDebug.lastReason = 'Already synced';
+          syncDebug.lastAt = Date.now();
           syncStatus = { state:'synced', at:Date.now(), message:'Already synced' };
           updateSyncStatusChip();
           continue;
@@ -1230,6 +1294,8 @@
         syncStatus = { state:'syncing', at:Date.now(), message:'Sync in progress' };
         updateSyncStatusChip();
 
+        const startedAt = Date.now();
+        syncDebug.attempts++;
         const res = await fetch(SYNC_ENDPOINT, {
           method:'POST',
           headers:{
@@ -1240,10 +1306,19 @@
           },
           body: payloadJson
         });
+        syncDebug.lastDurationMs = Date.now() - startedAt;
 
         const ok = !!res.ok;
         overallOk = overallOk && ok;
-        if (ok) lastSyncedPayloadSig = payloadSig;
+        if (ok) {
+          lastSyncedPayloadSig = payloadSig;
+          syncDebug.successes++;
+          syncDebug.lastReason = 'Last sync saved to server';
+        } else {
+          syncDebug.failures++;
+          syncDebug.lastReason = 'Server rejected sync (' + res.status + ')';
+        }
+        syncDebug.lastAt = Date.now();
         syncStatus = {
           state: ok ? 'synced' : 'failed',
           at: Date.now(),
@@ -1255,6 +1330,10 @@
       return overallOk;
     } catch (e) {
       console.warn('Remote sync save failed', e);
+      syncDebug.failures++;
+      syncDebug.lastReason = 'Sync failed: ' + e.message;
+      syncDebug.lastError = e && e.stack ? e.stack : String(e);
+      syncDebug.lastAt = Date.now();
       syncStatus = { state:'failed', at:Date.now(), message:'Sync failed: ' + e.message };
       updateSyncStatusChip();
       return false;
@@ -1867,6 +1946,15 @@
       addBtn.className = 'primary';
       addBtn.textContent = '+ Add chapter';
       addBtn.onclick = () => startAddChapter();
+      const debugBtn = document.createElement('button');
+      debugBtn.className = 'subtle';
+      debugBtn.textContent = view.debugOpen ? 'Debug ✓' : 'Debug';
+      debugBtn.title = 'Show sync and storage diagnostics';
+      debugBtn.onclick = () => {
+        view.debugOpen = !view.debugOpen;
+        if (view.debugOpen && !routeBookSlug) refreshMainPageDebug();
+        render();
+      };
       const moreBtn = document.createElement('button');
       moreBtn.className = 'icon-btn subtle';
       moreBtn.title = 'Export or import your library';
@@ -1887,7 +1975,8 @@
       syncStatusChip.disabled = true;
       syncStatusChip.textContent = getSyncStatusText();
       syncStatusChip.title = syncStatus.message || 'Sync status';
-      topbarActions.append(profileSwitcher, darkBadge, syncStatusChip, moreBtn, syncBtn, addBtn);
+      if (routeBookSlug) topbarActions.append(profileSwitcher, darkBadge, syncStatusChip, moreBtn, syncBtn, addBtn);
+      else topbarActions.append(profileSwitcher, darkBadge, syncStatusChip, debugBtn, moreBtn, syncBtn, addBtn);
     } else {
       brandTitle.textContent = routeBookSlug ? '← Book Page' : '← Library';
       brandTitle.style.cursor = 'pointer';
@@ -2343,6 +2432,36 @@
         </div>`;
       toolrow.querySelector('#manageBooksRootBtn').onclick = () => openBookManager('');
       wrap.appendChild(toolrow);
+
+      if (view.debugOpen) {
+        const panel = document.createElement('div');
+        panel.className = 'continue-card';
+        const d = mainPageDebug.data;
+        const statusLine = mainPageDebug.loading
+          ? 'Collecting diagnostics...'
+          : (mainPageDebug.error ? ('Diagnostics error: ' + esc(mainPageDebug.error)) : 'Diagnostics snapshot');
+        panel.innerHTML = `
+          <div style="min-width:260px;">
+            <div class="label">Debug: Sync & Storage</div>
+            <div style="font-size:13px;color:var(--ink-soft);margin-top:4px;">${statusLine}</div>
+            <div style="font-size:12px;color:var(--ink-soft);margin-top:10px;line-height:1.6;">
+              <div>Sync attempts: ${syncDebug.attempts} | success: ${syncDebug.successes} | fail: ${syncDebug.failures}</div>
+              <div>Last reason: ${esc(syncDebug.lastReason || 'n/a')}</div>
+              <div>Last payload: ${formatBytes(syncDebug.lastPayloadBytes)} | last sync time: ${syncDebug.lastDurationMs} ms</div>
+              <div>Recovery pulls: ${syncDebug.recoveryAttempts}</div>
+              <div>Books: ${d ? d.books : '-'} | Chapters: ${d ? d.chapters : '-'}</div>
+              <div>Payload size now: ${d ? formatBytes(d.payloadBytes) : '-'}</div>
+              <div>Stored keys: ${d ? d.keysTotal : '-'} (global ${d ? d.keysGlobal : '-'}, scoped ${d ? d.keysScoped : '-'})</div>
+              <div>Missing local chapter blobs: ${d ? d.missingChapterCount : '-'}</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-self:flex-start;">
+            <button id="refreshDebugBtn">Refresh diagnostics</button>
+          </div>`;
+        wrap.appendChild(panel);
+        const refreshBtn = panel.querySelector('#refreshDebugBtn');
+        if (refreshBtn) refreshBtn.onclick = () => refreshMainPageDebug();
+      }
 
       renderBookGrid(wrap, index);
       if (view.transferOpen){
