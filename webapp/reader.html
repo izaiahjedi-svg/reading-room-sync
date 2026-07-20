@@ -252,11 +252,27 @@
     padding:12px 4px; cursor:pointer; font-size:12px; font-weight:600;
     text-transform:uppercase; letter-spacing:.08em; color:var(--ink-soft);
     list-style:none; display:flex; align-items:center; gap:8px;
+    flex-wrap:wrap;
   }
   .volume-group summary::-webkit-details-marker{ display:none; }
   .volume-group summary::before{ content:'▸'; font-size:10px; }
   .volume-group[open] summary::before{ content:'▾'; }
   .volume-group .chapter-list{ padding-left:6px; }
+  .volume-summary-text{ flex:1; min-width:120px; }
+  .volume-progress{
+    flex:none;
+    width:min(160px, 100%);
+    height:6px;
+    border-radius:999px;
+    background:var(--line);
+    overflow:hidden;
+    border:1px solid color-mix(in srgb, var(--line) 60%, transparent);
+  }
+  .volume-progress-fill{
+    height:100%;
+    background:var(--brass);
+    border-radius:inherit;
+  }
   .chapter-row{
     display:flex; align-items:center; gap:14px;
     padding:13px 4px;
@@ -2217,11 +2233,16 @@
       }
       volumes.forEach((vol) => {
         const groupItems = items.filter(c => (c.volume || '') === vol);
+        const volumePct = groupItems.length
+          ? Math.round(groupItems.reduce((sum, ch) => sum + Math.max(0, Math.min(100, Math.round(getProgress().percents[ch.id] || 0))), 0) / groupItems.length)
+          : 0;
         const volDetails = document.createElement('details');
         volDetails.className = 'volume-group';
-        volDetails.open = true;
+        volDetails.open = false;
         const volSummary = document.createElement('summary');
-        volSummary.textContent = vol || 'Chapters';
+        volSummary.innerHTML = `
+          <span class="volume-summary-text">${esc(vol || 'Chapters')}</span>
+          <span class="volume-progress" aria-hidden="true"><span class="volume-progress-fill" style="width:${volumePct}%"></span></span>`;
         volDetails.appendChild(volSummary);
         const ul = document.createElement('ul');
         ul.className = 'chapter-list nested two-col';
