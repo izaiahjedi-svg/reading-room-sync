@@ -554,6 +554,7 @@
     <div class="button-group" style="justify-content:space-between;">
       <button id="bookUploadChaptersBtn" type="button">+ Add Chapters</button>
       <div style="display:flex;gap:8px;">
+        <button id="bookDeleteBtn" type="button">Delete book</button>
         <button id="bookModalCancelBtn" type="button">Close</button>
         <button class="primary" id="bookModalSaveBtn" type="button">Save</button>
       </div>
@@ -871,6 +872,7 @@
   let pendingChapterTitle = '';
   let pendingUploadBook = '';
   let pendingUploadVolume = '';
+  let remoteSyncPrimed = false;
   let pendingCoverDataUrl = null;
   let syncStatus = { state:'idle', at:0, message:'' };
 
@@ -1088,6 +1090,7 @@
 
   function setSyncKey(key){
     syncKey = (key || '').trim();
+    remoteSyncPrimed = !syncKey;
     try {
       if (syncKey) window.localStorage.setItem(SYNC_KEY_STORAGE_KEY, syncKey);
       else window.localStorage.removeItem(SYNC_KEY_STORAGE_KEY);
@@ -1124,6 +1127,15 @@
 
   async function pushRemoteLibrary(){
     if (!syncKey) return false;
+    if (routeBookSlug && !remoteSyncPrimed) {
+      // Avoid destructive scoped overwrite if this route has not pulled remote data yet.
+      const pulled = await syncFromRemote();
+      if (!pulled) {
+        syncStatus = { state:'failed', at:Date.now(), message:'Scoped sync blocked until remote data loads' };
+        updateSyncStatusChip();
+        return false;
+      }
+    }
     syncStatus = { state:'syncing', at:Date.now(), message:'Sync in progress' };
     updateSyncStatusChip();
     try {
@@ -1172,6 +1184,7 @@
     await storageSet('books-meta', booksMeta);
     await storageSet('profile-state', profileState);
     syncStatus = { state:'synced', at:Date.now(), message:'Pulled latest library from server' };
+    remoteSyncPrimed = true;
     updateSyncStatusChip();
     applyTheme();
     render();
@@ -1337,11 +1350,26 @@
   }
 
   function startAddChapter(){
+    pendingChapterTitle = '';
+    pendingUploadBook = '';
+    pendingUploadVolume = '';
     openAddChapterModal('');
   }
 
   function startAddChapterToBook(bookName){
+    pendingChapterTitle = '';
     openAddChapterModal((bookName || '').trim());
+  }
+
+  function returnToLibrary(){
+    view.mode = 'library';
+    view.chapterId = null;
+    view.bookFilter = '';
+    view.search = '';
+    view.settingsOpen = false;
+    view.sidebarOpen = false;
+    renderTopbar();
+    render();
   }
 
   async function handleUpload(fileList, inputEl){
@@ -1360,7 +1388,7 @@
       const requestedTitle = pendingChapterTitle && files.length === 1 ? pendingChapterTitle : '';
       const title = (requestedTitle || stem).trim() || stem;
       const detectedBook = detectBook(file);
-      const book = detectedBook || pendingUploadBook || null;
+      const book = pendingUploadBook || detectedBook || null;
       const volume = detectVolume(file) || pendingUploadVolume || null;
       const id = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()+Math.random()));
       const ok = await storageSet('chapter:' + id, { title, content: text });
@@ -1424,6 +1452,7 @@
     if (!rel) return null;
     const parts = rel.split('/');
     if (parts.length >= 3) return parts[1];
+    if (parts.length >= 2 && pendingUploadBook) return parts[0];
     return null;
   }
 
@@ -1729,7 +1758,7 @@
     } else {
       brandTitle.textContent = routeBookSlug ? '← Book Page' : '← Library';
       brandTitle.style.cursor = 'pointer';
-      brandTitle.onclick = () => { view.mode='library'; view.chapterId=null; renderTopbar(); render(); };
+      brandTitle.onclick = returnToLibrary;
       if (routeBookSlug){
         const booksBtn = document.createElement('button');
         booksBtn.className = 'subtle';
@@ -1871,10 +1900,13 @@
     const renameVolumeBtn = document.getElementById('renameVolumeBtn');
     const saveBtn = document.getElementById('bookModalSaveBtn');
     const cancelBtn = document.getElementById('bookModalCancelBtn');
+    const deleteBtn = document.getElementById('bookDeleteBtn');
     const pickCoverBtn = document.getElementById('bookPickCoverBtn');
     const clearCoverBtn = document.getElementById('bookClearCoverBtn');
     const uploadBtn = document.getElementById('bookUploadChaptersBtn');
     const books = getAllBookNames();
+    let deleteArm = false;
+    let deleteArmTimer = null;
     pendingCoverDataUrl = null;
 
     picker.innerHTML = '';
@@ -1948,6 +1980,13 @@
       } else {
         titleInput.value = getBookLabel(key);
       }
+      deleteArm = false;
+      if (deleteArmTimer) {
+        clearTimeout(deleteArmTimer);
+        deleteArmTimer = null;
+      }
+      deleteBtn.textContent = 'Delete book';
+      deleteBtn.disabled = key === '__new__' || !key;
       renderBookCoverPreview();
       refreshVolumeRenameOptions();
     }
@@ -1958,11 +1997,16 @@
       picker.onchange = null;
       saveBtn.onclick = null;
       cancelBtn.onclick = null;
+      deleteBtn.onclick = null;
       pickCoverBtn.onclick = null;
       clearCoverBtn.onclick = null;
       uploadBtn.onclick = null;
       renameVolumeBtn.onclick = null;
       backdrop.onclick = null;
+      if (deleteArmTimer) {
+        clearTimeout(deleteArmTimer);
+        deleteArmTimer = null;
+      }
       pendingCoverDataUrl = null;
     }
 
@@ -1974,6 +2018,61 @@
       if (!key) { alert('Pick a book title first.'); return; }
       startAddChapterToBook(key);
       close();
+    };
+
+    deleteBtn.onclick = async () => {
+      const bookKey = (picker.value || '').trim();
+      if (!bookKey || bookKey === '__new__') return;
+
+      if (!deleteArm) {
+        deleteArm = true;
+        deleteBtn.textContent = 'Click again to delete';
+        deleteArmTimer = setTimeout(() => {
+          deleteArm = false;
+          deleteBtn.textContent = 'Delete book';
+          deleteArmTimer = null;
+        }, 6000);
+        return;
+      }
+
+      if (deleteArmTimer) {
+        clearTimeout(deleteArmTimer);
+        deleteArmTimer = null;
+      }
+      deleteArm = false;
+      deleteBtn.textContent = 'Delete book';
+
+      const doomed = index.filter(ch => (ch.book || '').trim() === bookKey);
+      if (!doomed.length && !booksMeta[bookKey]) {
+        alert('Nothing to delete for this book.');
+        return;
+      }
+
+      if (!confirm('Delete book "' + getBookLabel(bookKey) + '" and all its chapters? This cannot be undone.')) {
+        return;
+      }
+
+      const doomedIds = new Set(doomed.map(ch => ch.id));
+      index = index.filter(ch => !doomedIds.has(ch.id));
+      for (const id of doomedIds) {
+        await storageDelete('chapter:' + id);
+      }
+      delete booksMeta[bookKey];
+
+      const progress = getProgress();
+      for (const id of doomedIds) {
+        if (progress.percents[id] != null) delete progress.percents[id];
+      }
+      if (progress.lastChapterId && doomedIds.has(progress.lastChapterId)) {
+        progress.lastChapterId = null;
+      }
+
+      await storageSet('chapters-index', index);
+      await persistBooksMeta();
+      await persistProfileState();
+      if (syncKey) await pushRemoteLibrary();
+      close();
+      render();
     };
 
     renameVolumeBtn.onclick = async () => {
@@ -2082,7 +2181,10 @@
           </div>
         </div>`;
       main.appendChild(wrap);
-      document.getElementById('emptyAddBtn').onclick = () => startAddChapterToBook(routeBookName || '');
+      document.getElementById('emptyAddBtn').onclick = () => {
+        if (isBookPage) startAddChapterToBook(routeBookName || '');
+        else startAddChapter();
+      };
       document.getElementById('emptyBookBtn').onclick = () => openBookManager(routeBookName || '__new__');
       if (isBookPage) {
         const backBtn = document.getElementById('emptyBackBtn');
@@ -2098,7 +2200,7 @@
         <div class="inline-actions">
           <button type="button" id="manageBooksRootBtn">Manage books</button>
         </div>`;
-      toolrow.querySelector('#manageBooksRootBtn').onclick = () => openBookManager(view.bookFilter || '');
+      toolrow.querySelector('#manageBooksRootBtn').onclick = () => openBookManager('');
       wrap.appendChild(toolrow);
 
       renderBookGrid(wrap, index);
