@@ -1188,7 +1188,10 @@
     ]);
     index = idx || [];
     booksMeta = (booksMetaData && typeof booksMetaData === 'object') ? booksMetaData : {};
-    profiles = (profilesData && typeof profilesData === 'object') ? profilesData : getDefaultProfiles();
+    const defaults = getDefaultProfiles();
+    profiles = (profilesData && typeof profilesData === 'object')
+      ? Object.assign({}, defaults, profilesData)
+      : defaults;
     if (profileStateData && typeof profileStateData === 'object') {
       profileState = profileStateData;
     }
