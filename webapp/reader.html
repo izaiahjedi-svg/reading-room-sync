@@ -947,6 +947,7 @@
   const SYNC_KEY_STORAGE_KEY = 'reading-room:sync-key';
   const SYNC_ENDPOINT = '/api/library';
   const STATE_ENDPOINT = '/api/state';
+  const COVER_ENDPOINT = '/api/cover';
 
   function getRouteBookSlug(){
     const parts = window.location.pathname.split('/').filter(Boolean);
@@ -1209,7 +1210,15 @@
     if (progressOnly) {
       return { version:1, exportedAt:Date.now(), progress, settings };
     }
-    return { version:1, exportedAt:Date.now(), index, chapters, progress, settings, booksMeta };
+    return {
+      version:1,
+      exportedAt:Date.now(),
+      index,
+      chapters,
+      progress,
+      settings,
+      booksMeta: compactBooksMetaForSync(booksMeta),
+    };
   }
 
   async function collectMainPageDebugData(){
@@ -1264,6 +1273,45 @@
     // exportedAt changes every build and should not force a fresh sync by itself.
     const stable = Object.assign({}, payload, { exportedAt: 0 });
     return payloadSignatureFromJson(JSON.stringify(stable));
+  }
+
+  function compactBooksMetaForSync(source){
+    const input = (source && typeof source === 'object') ? source : {};
+    const out = {};
+    for (const key of Object.keys(input)) {
+      const meta = input[key] && typeof input[key] === 'object' ? input[key] : {};
+      out[key] = {
+        title: meta.title || key,
+        coverPath: meta.coverPath || '',
+      };
+    }
+    return out;
+  }
+
+  function resolveCoverSrc(bookName, meta){
+    const m = (meta && typeof meta === 'object') ? meta : {};
+    if (m.coverPath) return m.coverPath;
+    if (m.coverDataUrl) return m.coverDataUrl;
+    return '';
+  }
+
+  async function uploadCoverToServer(bookName, dataUrl){
+    if (!syncKey) return { ok:false, coverPath:'' };
+    try {
+      const res = await fetch(COVER_ENDPOINT, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-sync-key': syncKey,
+        },
+        body: JSON.stringify({ book: bookName, dataUrl }),
+      });
+      if (!res.ok) return { ok:false, coverPath:'' };
+      const payload = await res.json();
+      return { ok:true, coverPath: (payload && payload.coverPath) ? payload.coverPath : '' };
+    } catch (e) {
+      return { ok:false, coverPath:'' };
+    }
   }
 
   async function loadRemoteState(profileId){
@@ -1525,7 +1573,9 @@
       await storageSet('books-meta', booksMeta);
     } else {
       index = remote.index || [];
-      booksMeta = (remote.booksMeta && typeof remote.booksMeta === 'object') ? remote.booksMeta : {};
+      booksMeta = (remote.booksMeta && typeof remote.booksMeta === 'object')
+        ? Object.assign({}, booksMeta || {}, remote.booksMeta)
+        : (booksMeta || {});
       for (const ch of index){
         const data = remote.chapters && remote.chapters[ch.id];
         if (data) await storageSet('chapter:' + ch.id, data);
@@ -2245,10 +2295,11 @@
       const card = document.createElement('div');
       card.className = 'book-card';
 
-      if (meta.coverDataUrl){
+      const coverSrc = resolveCoverSrc(bookName, meta);
+      if (coverSrc){
         const img = document.createElement('img');
         img.className = 'book-cover';
-        img.src = meta.coverDataUrl;
+        img.src = coverSrc;
         img.alt = getBookLabel(bookName) + ' cover';
         card.appendChild(img);
       } else {
@@ -2289,7 +2340,7 @@
     if (!wrap || !picker) return;
     const key = (picker.value || '').trim();
     const meta = booksMeta[key] || {};
-    const cover = pendingCoverDataUrl || meta.coverDataUrl;
+    const cover = pendingCoverDataUrl || resolveCoverSrc(key, meta);
     if (cover){
       wrap.innerHTML = `<img class="cover-preview" src="${cover}" alt="Book cover preview" />`;
     } else {
@@ -2557,9 +2608,26 @@
         targetKey = nextTitle;
       }
 
-      if (!booksMeta[targetKey]) booksMeta[targetKey] = { title: targetKey, coverDataUrl: '' };
+      if (!booksMeta[targetKey]) booksMeta[targetKey] = { title: targetKey, coverDataUrl: '', coverPath: '' };
       booksMeta[targetKey].title = nextTitle;
-      if (pendingCoverDataUrl !== null) booksMeta[targetKey].coverDataUrl = pendingCoverDataUrl;
+      if (pendingCoverDataUrl !== null) {
+        if (pendingCoverDataUrl === '') {
+          booksMeta[targetKey].coverDataUrl = '';
+          booksMeta[targetKey].coverPath = '';
+        } else if (syncKey) {
+          const uploaded = await uploadCoverToServer(targetKey, pendingCoverDataUrl);
+          if (uploaded.ok && uploaded.coverPath) {
+            booksMeta[targetKey].coverPath = uploaded.coverPath;
+            booksMeta[targetKey].coverDataUrl = '';
+          } else {
+            booksMeta[targetKey].coverDataUrl = pendingCoverDataUrl;
+            booksMeta[targetKey].coverPath = '';
+          }
+        } else {
+          booksMeta[targetKey].coverDataUrl = pendingCoverDataUrl;
+          booksMeta[targetKey].coverPath = '';
+        }
+      }
 
       view.chapterSort = sortSelect.value || 'book-volume-added';
       index.sort(sortChapters);
@@ -2684,8 +2752,9 @@
       : null;
     const header = document.createElement('div');
     header.className = 'book-page-header';
-    const coverHtml = currentMeta.coverDataUrl
-      ? `<img class="book-page-cover" src="${currentMeta.coverDataUrl}" alt="${esc(getBookLabel(currentBook))} cover" />`
+    const currentCoverSrc = resolveCoverSrc(currentBook, currentMeta);
+    const coverHtml = currentCoverSrc
+      ? `<img class="book-page-cover" src="${currentCoverSrc}" alt="${esc(getBookLabel(currentBook))} cover" />`
       : '<div class="book-page-cover-fallback">BOOK</div>';
     header.innerHTML = `
       ${coverHtml}

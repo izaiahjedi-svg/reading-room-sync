@@ -7,10 +7,12 @@ const app = express();
 const port = process.env.PORT || 3000;
 const dataDir = path.join(__dirname, '.data');
 const keyDir = path.join(dataDir, 'keys');
+const coverDir = path.join(dataDir, 'covers');
 const legacyDataFile = path.join(dataDir, 'library.json');
 
 if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
 if (!fs.existsSync(keyDir)) fs.mkdirSync(keyDir, { recursive: true });
+if (!fs.existsSync(coverDir)) fs.mkdirSync(coverDir, { recursive: true });
 
 app.use(express.json({ limit: '200mb' }));
 app.use(express.static(__dirname));
@@ -174,6 +176,40 @@ function keyFilePath(key) {
   return path.join(keyDir, digest + '.json');
 }
 
+function keyDigest(key) {
+  return crypto.createHash('sha256').update(key || '').digest('hex');
+}
+
+function safeBookSlugForCover(bookName) {
+  const slug = slugifyBookName(bookName);
+  return slug || 'book';
+}
+
+function coverFilePath(key, bookName) {
+  const kd = keyDigest(key);
+  const dir = path.join(coverDir, kd);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  return path.join(dir, safeBookSlugForCover(bookName) + '.json');
+}
+
+function parseDataUrlImage(dataUrl) {
+  const m = /^data:([^;,]+);base64,([a-z0-9+/=]+)$/i.exec((dataUrl || '').trim());
+  if (!m) return null;
+  const mime = (m[1] || '').toLowerCase();
+  if (!/^image\//.test(mime)) return null;
+  try {
+    const buffer = Buffer.from(m[2], 'base64');
+    if (!buffer.length) return null;
+    return { mime, base64: m[2], bytes: buffer.length };
+  } catch (e) {
+    return null;
+  }
+}
+
+function coverPublicPath(key, bookName) {
+  return '/api/cover?key=' + encodeURIComponent(key) + '&book=' + encodeURIComponent(bookName) + '&v=' + Date.now();
+}
+
 function readKeyData(key) {
   const p = keyFilePath(key);
   if (!fs.existsSync(p)) return null;
@@ -269,6 +305,43 @@ app.get('/api/library', (req, res) => {
     return res.json({ data: meta });
   }
   res.json({ data: data || null });
+});
+
+app.get('/api/cover', (req, res) => {
+  const key = (req.query.key || '').toString().trim();
+  const book = (req.query.book || '').toString().trim();
+  if (!key || !book) return res.status(400).json({ error: 'Missing key or book' });
+  const p = coverFilePath(key, book);
+  if (!fs.existsSync(p)) return res.status(404).json({ error: 'Cover not found' });
+  try {
+    const payload = JSON.parse(fs.readFileSync(p, 'utf8'));
+    const mime = (payload && payload.mime) || 'image/jpeg';
+    const base64 = (payload && payload.base64) || '';
+    const buffer = Buffer.from(base64, 'base64');
+    res.setHeader('Content-Type', mime);
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    return res.send(buffer);
+  } catch (e) {
+    return res.status(500).json({ error: 'Failed to load cover' });
+  }
+});
+
+app.post('/api/cover', (req, res) => {
+  const key = (req.headers['x-sync-key'] || '').toString().trim();
+  const book = (req.body && req.body.book ? req.body.book : '').toString().trim();
+  const dataUrl = (req.body && req.body.dataUrl ? req.body.dataUrl : '').toString();
+  if (!key) return res.status(400).json({ error: 'Missing sync key' });
+  if (!book) return res.status(400).json({ error: 'Missing book' });
+  const parsed = parseDataUrlImage(dataUrl);
+  if (!parsed) return res.status(400).json({ error: 'Invalid image payload' });
+  if (parsed.bytes > 2 * 1024 * 1024) return res.status(413).json({ error: 'Cover exceeds 2MB limit' });
+  try {
+    const p = coverFilePath(key, book);
+    fs.writeFileSync(p, JSON.stringify({ mime: parsed.mime, base64: parsed.base64 }), 'utf8');
+    return res.json({ ok: true, coverPath: coverPublicPath(key, book) });
+  } catch (e) {
+    return res.status(500).json({ error: 'Failed to save cover' });
+  }
 });
 
 app.get('/api/state', (req, res) => {
