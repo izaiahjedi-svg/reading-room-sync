@@ -58,7 +58,7 @@ function sliceLibraryByBook(data, slug) {
   return slice;
 }
 
-function mergeBookSlice(existing, incoming, slug) {
+function mergeBookSlice(existing, incoming, slug, replaceMode) {
   const base = existing && typeof existing === 'object' ? existing : {};
   const next = {
     version: incoming && incoming.version ? incoming.version : (base.version || 1),
@@ -76,20 +76,43 @@ function mergeBookSlice(existing, incoming, slug) {
   const existingBookEntries = next.index.filter((entry) => matchesBookSlug(entry && entry.book, slug));
   next.index = next.index.filter((entry) => !matchesBookSlug(entry && entry.book, slug));
 
-  // Only remove chapter blobs that were explicitly removed from the incoming index.
-  for (const entry of existingBookEntries) {
-    if (entry && entry.id && !incomingIds.has(entry.id)) delete next.chapters[entry.id];
-  }
-
   const incomingMeta = (incoming && incoming.booksMeta) || {};
-  const shouldReplaceBookMeta = incomingIndex.length === 0 || Object.keys(incomingMeta).length > 0;
-  if (shouldReplaceBookMeta) {
+  if (replaceMode) {
+    // Replace mode is opt-in and intended for explicit delete operations.
+    for (const entry of existingBookEntries) {
+      if (entry && entry.id && !incomingIds.has(entry.id)) delete next.chapters[entry.id];
+    }
     for (const key of Object.keys(next.booksMeta)) {
       if (matchesBookSlug(key, slug)) delete next.booksMeta[key];
     }
   }
 
-  next.index.push(...incomingIndex);
+  const mergedBookEntries = replaceMode
+    ? incomingIndex
+    : (() => {
+      const byId = new Map();
+      const out = [];
+      for (const entry of existingBookEntries) {
+        const id = entry && entry.id;
+        if (id && !byId.has(id)) {
+          byId.set(id, out.length);
+          out.push(entry);
+        } else if (!id) {
+          out.push(entry);
+        }
+      }
+      for (const entry of incomingIndex) {
+        const id = entry && entry.id;
+        if (id && byId.has(id)) out[byId.get(id)] = entry;
+        else {
+          if (id) byId.set(id, out.length);
+          out.push(entry);
+        }
+      }
+      return out;
+    })();
+
+  next.index.push(...mergedBookEntries);
   // Preserve existing chapter content for incoming index IDs if client omitted some chapter bodies.
   for (const entry of existingBookEntries) {
     if (entry && entry.id && incomingIds.has(entry.id) && !((incoming && incoming.chapters) || {})[entry.id]) {
@@ -142,6 +165,7 @@ function readLegacyValue(key) {
 app.get('/api/library', (req, res) => {
   const key = (req.query.key || '').trim();
   const bookSlug = (req.query.book || '').trim().toLowerCase();
+  const metaOnly = (req.query.meta || '').trim() === '1';
   if (!key) return res.status(400).json({ error: 'Missing sync key' });
 
   let data = readKeyData(key);
@@ -153,18 +177,27 @@ app.get('/api/library', (req, res) => {
     }
   }
   if (bookSlug) return res.json({ data: sliceLibraryByBook(data, bookSlug) });
+  if (metaOnly && data) {
+    const meta = emptyLibrarySlice(data);
+    meta.index = Array.isArray(data.index) ? data.index : [];
+    meta.progress = (data && data.progress) || meta.progress;
+    meta.settings = (data && data.settings) || meta.settings;
+    meta.booksMeta = (data && data.booksMeta) || {};
+    return res.json({ data: meta });
+  }
   res.json({ data: data || null });
 });
 
 app.post('/api/library', (req, res) => {
   const key = (req.headers['x-sync-key'] || '').toString().trim();
   const bookSlug = (req.headers['x-book-slug'] || '').toString().trim().toLowerCase();
+  const replaceMode = (req.headers['x-sync-replace'] || '').toString().trim() === '1';
   if (!key) return res.status(400).json({ error: 'Missing sync key' });
   if (bookSlug) {
     const existing = readKeyData(key) || readLegacyValue(key) || {};
-    const merged = mergeBookSlice(existing, req.body || {}, bookSlug);
+    const merged = mergeBookSlice(existing, req.body || {}, bookSlug, replaceMode);
     writeKeyData(key, merged);
-    return res.json({ ok: true, scoped: true });
+    return res.json({ ok: true, scoped: true, replaceMode });
   }
   writeKeyData(key, req.body || {});
   res.json({ ok: true });

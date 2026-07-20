@@ -1186,11 +1186,12 @@
     return payloadSignatureFromJson(JSON.stringify(stable));
   }
 
-  async function loadRemoteLibrary(){
+  async function loadRemoteLibrary(options){
     if (!syncKey) return null;
     try {
       const url = new URL(SYNC_ENDPOINT, window.location.origin);
       url.searchParams.set('key', syncKey);
+      if (options && options.metaOnly) url.searchParams.set('meta', '1');
       if (routeBookSlug) url.searchParams.set('book', routeBookSlug);
       const res = await fetch(url.toString());
       if (!res.ok) return null;
@@ -1342,11 +1343,11 @@
     }
   }
 
-  async function syncFromRemote(){
+  async function syncFromRemote(options){
     if (!syncKey) return false;
     syncStatus = { state:'syncing', at:Date.now(), message:'Loading latest data from server' };
     updateSyncStatusChip();
-    const remote = await loadRemoteLibrary();
+    const remote = await loadRemoteLibrary(options);
     if (!remote || !Array.isArray(remote.index)) return false;
     index = remote.index || [];
     booksMeta = (remote.booksMeta && typeof remote.booksMeta === 'object') ? remote.booksMeta : {};
@@ -1354,9 +1355,11 @@
     const activeState = getActiveProfileState();
     if (remote.progress) activeState.progress = remote.progress;
     if (remote.settings) Object.assign(activeState.settings, remote.settings);
-    for (const ch of index){
-      const data = remote.chapters && remote.chapters[ch.id];
-      if (data) await storageSet('chapter:' + ch.id, data);
+    if (!(options && options.metaOnly)) {
+      for (const ch of index){
+        const data = remote.chapters && remote.chapters[ch.id];
+        if (data) await storageSet('chapter:' + ch.id, data);
+      }
     }
     await storageSet('chapters-index', index);
     await storageSet('books-meta', booksMeta);
@@ -1377,8 +1380,12 @@
     if (nextKey === null) return false;
     setSyncKey(nextKey || '');
     if (syncKey) {
-      await syncFromRemote();
-      await pushRemoteLibrary();
+      if (routeBookSlug) {
+        await syncFromRemote();
+        await pushRemoteLibrary();
+      } else {
+        await syncFromRemote({ metaOnly:true });
+      }
     }
     renderTopbar();
     return !!syncKey;
@@ -1424,7 +1431,8 @@
     });
 
     if (syncKey) {
-      syncFromRemote().catch((e) => {
+      const syncTask = routeBookSlug ? syncFromRemote() : syncFromRemote({ metaOnly:true });
+      syncTask.catch((e) => {
         console.warn('Initial remote sync failed', e);
       });
     }
