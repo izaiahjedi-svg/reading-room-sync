@@ -27,5 +27,5 @@ npm start
 Then open the app at `http://localhost:3000/`.
 
 ## Notes
-- `webapp/` is the active frontend copy.
-- `reader web/` is a legacy duplicate kept for reference and is not the Render entry point.
+- `webapp/reader.html` is the only frontend source file that should be edited for the deployed app.
+- Root `server.js`, `render.yaml`, and `package.json` are the only deployment files used by Render.

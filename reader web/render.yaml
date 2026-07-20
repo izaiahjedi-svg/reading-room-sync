@@ -1,8 +1,0 @@
-services:
-  - type: web
-    name: reading-room-sync
-    env: node
-    plan: free
-    buildCommand: npm install
-    startCommand: node server.js
-    autoDeploy: true
