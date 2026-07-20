@@ -193,7 +193,20 @@ app.post('/api/library', (req, res) => {
   const key = (req.headers['x-sync-key'] || '').toString().trim();
   const bookSlug = (req.headers['x-book-slug'] || '').toString().trim().toLowerCase();
   const replaceMode = (req.headers['x-sync-replace'] || '').toString().trim() === '1';
+  const partialMode = (req.headers['x-sync-partial'] || '').toString().trim();
   if (!key) return res.status(400).json({ error: 'Missing sync key' });
+  if (partialMode === 'progress') {
+    const existing = readKeyData(key) || readLegacyValue(key) || {};
+    const incoming = req.body || {};
+    const next = Object.assign({}, existing, {
+      version: incoming.version || existing.version || 1,
+      exportedAt: incoming.exportedAt || Date.now(),
+      progress: incoming.progress || existing.progress || { lastChapterId: null, percents: {} },
+      settings: incoming.settings ? Object.assign({}, existing.settings || {}, incoming.settings) : (existing.settings || {}),
+    });
+    writeKeyData(key, next);
+    return res.json({ ok: true, partialMode: 'progress' });
+  }
   if (bookSlug) {
     const existing = readKeyData(key) || readLegacyValue(key) || {};
     const merged = mergeBookSlice(existing, req.body || {}, bookSlug, replaceMode);

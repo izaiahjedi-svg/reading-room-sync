@@ -1145,6 +1145,9 @@
     }
     const progress = getProgress();
     const settings = getSettings();
+    if (progressOnly) {
+      return { version:1, exportedAt:Date.now(), progress, settings };
+    }
     return { version:1, exportedAt:Date.now(), index, chapters, progress, settings, booksMeta };
   }
 
@@ -1239,6 +1242,7 @@
 
   async function pushRemoteLibrary(options){
     const forceReplace = !!(options && options.forceReplace);
+    const progressOnly = !!(options && options.progressOnly);
     if (!syncKey) return false;
     if (syncInFlight) {
       syncPending = true;
@@ -1256,7 +1260,7 @@
         const replaceThisCycle = !!syncPendingReplace;
         syncPendingReplace = false;
 
-        if (routeBookSlug && !remoteSyncPrimed) {
+        if (!progressOnly && routeBookSlug && !remoteSyncPrimed) {
           // Avoid destructive scoped overwrite if this route has not pulled remote data yet.
           const pulled = await syncFromRemote();
           if (!pulled) {
@@ -1272,8 +1276,8 @@
           }
         }
 
-        const payload = await buildLibraryPayload();
-        const missingChapterIds = (payload.index || [])
+        const payload = await buildLibraryPayload({ progressOnly });
+        const missingChapterIds = progressOnly ? [] : (payload.index || [])
           .map((ch) => ch && ch.id)
           .filter((id) => id && !payload.chapters[id]);
         if (missingChapterIds.length) {
@@ -1318,7 +1322,8 @@
           headers:{
             'Content-Type':'application/json',
             'x-sync-key': syncKey,
-            ...(routeBookSlug ? { 'x-book-slug': routeBookSlug } : {}),
+            ...(progressOnly ? { 'x-sync-partial': 'progress' } : {}),
+            ...(!progressOnly && routeBookSlug ? { 'x-book-slug': routeBookSlug } : {}),
             ...(replaceThisCycle ? { 'x-sync-replace': '1' } : {}),
           },
           body: payloadJson
