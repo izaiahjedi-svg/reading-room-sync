@@ -106,6 +106,15 @@
   .profile-switcher{ display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
   .profile-chip{ padding:6px 10px; border-radius:999px; font-size:12px; }
   .profile-chip.active{ background:var(--brass); color:#fff; border-color:var(--brass); }
+  .profile-select{
+    min-width:120px;
+    padding:7px 10px;
+    border:1px solid var(--line);
+    border-radius:999px;
+    background:var(--paper-raised);
+    color:var(--ink);
+    font-size:12px;
+  }
 
   main{ flex:1; width:100%; }
 
@@ -1635,13 +1644,21 @@
     topbarActions.innerHTML = '';
     const profileSwitcher = document.createElement('div');
     profileSwitcher.className = 'profile-switcher';
+    const profileLabel = document.createElement('span');
+    profileLabel.className = 'visually-hidden';
+    profileLabel.textContent = 'Profile';
+    const profileSelect = document.createElement('select');
+    profileSelect.className = 'profile-select';
+    profileSelect.setAttribute('aria-label', 'Profile');
     Object.entries(profiles).forEach(([id, profile]) => {
-      const btn = document.createElement('button');
-      btn.className = 'profile-chip' + (activeProfileId === id ? ' active' : '');
-      btn.textContent = profile.name;
-      btn.onclick = () => switchProfile(id);
-      profileSwitcher.appendChild(btn);
+      const opt = document.createElement('option');
+      opt.value = id;
+      opt.textContent = profile.name;
+      if (id === activeProfileId) opt.selected = true;
+      profileSelect.appendChild(opt);
     });
+    profileSelect.onchange = () => switchProfile(profileSelect.value);
+    profileSwitcher.append(profileLabel, profileSelect);
 
     if (view.mode === 'library'){
       if (routeBookSlug) {
