@@ -955,6 +955,7 @@
     checked: 0,
     uploaded: 0,
     failed: 0,
+    scanned: 0,
     cursor: 0,
     complete: false,
     active: false,
@@ -1332,7 +1333,8 @@
       'Global logical keys: ' + (d.keysGlobalLogical || 0),
       'Chunk fragment keys: ' + (d.keysChunk || 0),
       'Backfill active: ' + (!!backfill.active),
-      'Backfill checked/total: ' + (backfill.checked || 0) + '/' + (backfill.total || 0),
+      'Backfill scanned/total: ' + (backfill.scanned || 0) + '/' + (backfill.total || 0),
+      'Backfill checked this run: ' + (backfill.checked || 0),
       'Backfill uploaded/failed: ' + (backfill.uploaded || 0) + '/' + (backfill.failed || 0),
       'Backfill complete: ' + (!!backfill.complete),
       'Backfill message: ' + (backfill.message || 'n/a'),
@@ -1589,6 +1591,7 @@
     backfillDebug.message = 'Backfill running';
     try {
       const start = (sameSig && Number.isInteger(prev.cursor)) ? Math.max(0, prev.cursor) : 0;
+      const scannedSoFar = (sameSig && Number.isInteger(prev.scanned)) ? Math.max(0, prev.scanned) : 0;
       const maxChecksPerRun = 220;
       let checks = 0;
       let uploaded = 0;
@@ -1613,27 +1616,29 @@
         else failed++;
       }
 
-      const completedPass = checks >= ids.length;
-      const nextCursor = completedPass ? 0 : ((start + checks) % ids.length);
-      const complete = completedPass && failed === 0;
+      const nextCursor = (start + checks) % ids.length;
+      const scanned = Math.min(ids.length, scannedSoFar + checks);
+      const complete = scanned >= ids.length;
       backfillDebug.runs += 1;
       backfillDebug.checked = checks;
       backfillDebug.uploaded = uploaded;
       backfillDebug.failed = failed;
+      backfillDebug.scanned = scanned;
       backfillDebug.cursor = nextCursor;
       backfillDebug.complete = complete;
       backfillDebug.lastRunAt = Date.now();
       backfillDebug.message = complete
-        ? 'Backfill complete'
-        : ('Backfill partial (' + checks + '/' + ids.length + ' checked)');
+        ? (uploaded > 0 ? 'Backfill complete' : 'Backfill complete (nothing new to upload)')
+        : ('Backfill partial (' + scanned + '/' + ids.length + ' scanned)');
       writeChapterBackfillState({
         sig: signature,
         cursor: nextCursor,
+        scanned,
         complete,
         updatedAt: Date.now(),
       });
 
-      addSyncEvent('backfill', 'Checked ' + checks + '/' + ids.length + ', uploaded ' + uploaded + ', failed ' + failed);
+      addSyncEvent('backfill', 'Scanned ' + scanned + '/' + ids.length + ', uploaded ' + uploaded + ', failed ' + failed);
       if (uploaded > 0 && syncStatus.state !== 'syncing') {
         syncStatus = {
           state: 'synced',
@@ -1643,10 +1648,12 @@
         updateSyncStatusChip();
       }
 
-      // Keep healing in the background until all chapters have been checked.
+      // Keep healing in the background until all chapters have been scanned once.
       if (!complete) {
         const waitMs = failed > 0 ? 3000 : 700;
         scheduleBackfillContinuation(waitMs);
+      } else {
+        addSyncEvent('backfill-done', backfillDebug.message);
       }
     } finally {
       backfillDebug.active = false;
@@ -3108,7 +3115,7 @@
               <div>Stored keys: ${d ? d.keysTotal : '-'} (global ${d ? d.keysGlobal : '-'}, scoped ${d ? d.keysScoped : '-'})</div>
               <div>Global logical keys: ${d ? d.keysGlobalLogical : '-'} | chunk fragment keys: ${d ? d.keysChunk : '-'}</div>
               <div>Missing local chapter blobs: ${d ? d.missingChapterCount : '-'}</div>
-              <div>Backfill run: ${b.active ? 'active' : 'idle'} | checked ${b.checked || 0}/${b.total || 0} | uploaded ${b.uploaded || 0} | failed ${b.failed || 0}</div>
+              <div>Backfill run: ${b.active ? 'active' : 'idle'} | scanned ${b.scanned || 0}/${b.total || 0} | checked ${b.checked || 0} | uploaded ${b.uploaded || 0} | failed ${b.failed || 0}</div>
               <div>Backfill state: ${b.complete ? 'complete' : 'incomplete'} | cursor ${b.cursor || 0} | runs ${b.runs || 0}</div>
               <div>Backfill note: ${esc(b.message || 'n/a')}</div>
               <div>Scoped cleanup: ${c.active ? 'active' : 'idle'} | deleted ${c.deleted || 0} | remaining ~${c.remaining || 0} | runs ${c.runs || 0}</div>
