@@ -908,6 +908,7 @@
   let remoteSyncPrimed = false;
   let attemptedRemoteBootstrap = false;
   let chapterBackfillInFlight = false;
+  let chapterBackfillTimer = null;
   let syncInFlight = false;
   let syncPending = false;
   let syncPendingReplace = false;
@@ -1421,6 +1422,18 @@
     } catch (e) {}
   }
 
+  function scheduleBackfillContinuation(delayMs){
+    if (routeBookSlug || !syncKey) return;
+    if (chapterBackfillTimer) return;
+    chapterBackfillTimer = setTimeout(() => {
+      chapterBackfillTimer = null;
+      backfillRemoteChapters().catch((e) => {
+        console.warn('Scheduled chapter backfill failed', e);
+        addSyncEvent('backfill-fail', 'Scheduled chapter backfill failed');
+      });
+    }, Math.max(250, delayMs || 1000));
+  }
+
   async function backfillRemoteChapters(){
     if (!syncKey || routeBookSlug || chapterBackfillInFlight) return;
     const ids = (Array.isArray(index) ? index : []).map((ch) => ch && ch.id).filter(Boolean);
@@ -1444,7 +1457,11 @@
     const signature = hashString(ids.join('|'));
     const prev = readChapterBackfillState();
     const sameSig = !!(prev && prev.sig === signature);
-    if (sameSig && prev.complete) return;
+    if (sameSig && prev.complete) {
+      backfillDebug.complete = true;
+      backfillDebug.message = 'Backfill already complete';
+      return;
+    }
 
     chapterBackfillInFlight = true;
     backfillDebug.active = true;
@@ -1452,7 +1469,7 @@
     backfillDebug.message = 'Backfill running';
     try {
       const start = (sameSig && Number.isInteger(prev.cursor)) ? Math.max(0, prev.cursor) : 0;
-      const maxChecksPerRun = 200;
+      const maxChecksPerRun = 220;
       let checks = 0;
       let uploaded = 0;
       let failed = 0;
@@ -1504,6 +1521,12 @@
           message: 'Backfilled ' + uploaded + ' chapter(s) to server',
         };
         updateSyncStatusChip();
+      }
+
+      // Keep healing in the background until all chapters have been checked.
+      if (!complete) {
+        const waitMs = failed > 0 ? 3000 : 700;
+        scheduleBackfillContinuation(waitMs);
       }
     } finally {
       backfillDebug.active = false;
