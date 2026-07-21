@@ -713,6 +713,17 @@
   }
 
   async function setChunkedValue(fullKey, value){
+    const previousMetaRaw = await getFromDb(fullKey);
+    let previousChunkKeys = [];
+    if (previousMetaRaw) {
+      try {
+        const previousMeta = JSON.parse(previousMetaRaw);
+        if (previousMeta && previousMeta.kind === 'chunked' && Array.isArray(previousMeta.chunkKeys)) {
+          previousChunkKeys = previousMeta.chunkKeys;
+        }
+      } catch (e) {}
+    }
+
     const chunks = [];
     for (let offset = 0; offset < value.length; offset += CHUNK_SIZE) {
       chunks.push(value.slice(offset, offset + CHUNK_SIZE));
@@ -723,6 +734,15 @@
     for (let i = 0; i < chunks.length; i++) {
       await setInDb(meta.chunkKeys[i], chunks[i]);
     }
+
+    // Delete old chunk fragments that are no longer part of this key.
+    const nextChunkKeySet = new Set(meta.chunkKeys);
+    for (const oldKey of previousChunkKeys) {
+      if (!nextChunkKeySet.has(oldKey)) {
+        await deleteFromDb(oldKey);
+      }
+    }
+
     memoryCache[fullKey] = value;
     return { key: fullKey, value, shared:false };
   }
@@ -803,6 +823,9 @@
         if (typeof value === 'string' && value.length > CHUNK_SIZE) {
           return await setChunkedValue(fullKey, value);
         }
+
+        // If this key used to be chunked, remove old chunk artifacts first.
+        await deleteChunkedValue(fullKey);
         await setInDb(fullKey, value);
         memoryCache[fullKey] = value;
         return { key, value, shared:false };
@@ -1247,6 +1270,8 @@
     const keys = (keysRes && keysRes.keys) ? keysRes.keys : [];
     const scopedKeys = keys.filter((k) => /^book:[^:]+:/.test(k));
     const globalKeys = keys.filter((k) => !/^book:[^:]+:/.test(k));
+    const chunkKeys = keys.filter((k) => k.includes(':chunk:'));
+    const globalLogicalKeys = globalKeys.filter((k) => !k.includes(':chunk:'));
     let missingChapterCount = 0;
     for (const ch of (payload.index || [])) {
       if (!ch || !ch.id) continue;
@@ -1262,6 +1287,8 @@
       keysTotal: keys.length,
       keysScoped: scopedKeys.length,
       keysGlobal: globalKeys.length,
+      keysChunk: chunkKeys.length,
+      keysGlobalLogical: globalLogicalKeys.length,
       backfill: Object.assign({}, backfillDebug),
       scopedCleanup: Object.assign({}, scopedCleanupDebug),
       events: syncEvents.slice(0, 12),
@@ -1296,6 +1323,8 @@
       'Last sync duration ms: ' + syncDebug.lastDurationMs,
       'Books/chapters: ' + d.books + '/' + d.chapters,
       'Missing local chapter blobs: ' + d.missingChapterCount,
+      'Global logical keys: ' + (d.keysGlobalLogical || 0),
+      'Chunk fragment keys: ' + (d.keysChunk || 0),
       'Backfill active: ' + (!!backfill.active),
       'Backfill checked/total: ' + (backfill.checked || 0) + '/' + (backfill.total || 0),
       'Backfill uploaded/failed: ' + (backfill.uploaded || 0) + '/' + (backfill.failed || 0),
@@ -3069,6 +3098,7 @@
               <div>Books: ${d ? d.books : '-'} | Chapters: ${d ? d.chapters : '-'}</div>
               <div>Payload size now: ${d ? formatBytes(d.payloadBytes) : '-'}</div>
               <div>Stored keys: ${d ? d.keysTotal : '-'} (global ${d ? d.keysGlobal : '-'}, scoped ${d ? d.keysScoped : '-'})</div>
+              <div>Global logical keys: ${d ? d.keysGlobalLogical : '-'} | chunk fragment keys: ${d ? d.keysChunk : '-'}</div>
               <div>Missing local chapter blobs: ${d ? d.missingChapterCount : '-'}</div>
               <div>Backfill run: ${b.active ? 'active' : 'idle'} | checked ${b.checked || 0}/${b.total || 0} | uploaded ${b.uploaded || 0} | failed ${b.failed || 0}</div>
               <div>Backfill state: ${b.complete ? 'complete' : 'incomplete'} | cursor ${b.cursor || 0} | runs ${b.runs || 0}</div>
