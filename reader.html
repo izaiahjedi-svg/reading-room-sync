@@ -1723,25 +1723,34 @@
 
   async function loadRemoteLibrary(options){
     if (!syncKey) return null;
-    let timeoutId = null;
+    const url = new URL(SYNC_ENDPOINT, window.location.origin);
+    url.searchParams.set('key', syncKey);
+    if (options && options.metaOnly) url.searchParams.set('meta', '1');
+    if (routeBookSlug) url.searchParams.set('book', routeBookSlug);
+
+    async function fetchOnce(timeoutMs){
+      let timeoutId = null;
+      try {
+        const controller = new AbortController();
+        timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+        const res = await fetch(url.toString(), { signal: controller.signal });
+        if (!res.ok) return null;
+        const payload = await res.json();
+        return payload && payload.data ? payload.data : null;
+      } finally {
+        if (timeoutId) clearTimeout(timeoutId);
+      }
+    }
+
     try {
-      const url = new URL(SYNC_ENDPOINT, window.location.origin);
-      url.searchParams.set('key', syncKey);
-      if (options && options.metaOnly) url.searchParams.set('meta', '1');
-      if (routeBookSlug) url.searchParams.set('book', routeBookSlug);
-      const controller = new AbortController();
-      const timeoutMs = 25000;
-      timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-      const res = await fetch(url.toString(), { signal: controller.signal });
-      clearTimeout(timeoutId);
-      if (!res.ok) return null;
-      const payload = await res.json();
-      return payload && payload.data ? payload.data : null;
+      const first = await fetchOnce(45000);
+      if (first) return first;
+      // One quick retry helps when the host is waking from inactivity.
+      await new Promise((res) => setTimeout(res, 1200));
+      return await fetchOnce(45000);
     } catch (e) {
       console.warn('Remote sync load failed', e);
       return null;
-    } finally {
-      if (timeoutId) clearTimeout(timeoutId);
     }
   }
 
@@ -1944,7 +1953,30 @@
         return false;
       }
       attemptedRemoteBootstrap = false;
-      index = remote.index || [];
+      // Root pulls are non-destructive: merge remote into local so transient
+      // server or scope issues never wipe local chapters.
+      const remoteIndex = Array.isArray(remote.index) ? remote.index : [];
+      const byId = new Map();
+      const merged = [];
+      for (const entry of localIndex) {
+        const id = entry && entry.id;
+        if (id && !byId.has(id)) {
+          byId.set(id, merged.length);
+          merged.push(entry);
+        } else if (!id) {
+          merged.push(entry);
+        }
+      }
+      for (const entry of remoteIndex) {
+        const id = entry && entry.id;
+        if (id && byId.has(id)) {
+          merged[byId.get(id)] = entry;
+        } else {
+          if (id) byId.set(id, merged.length);
+          merged.push(entry);
+        }
+      }
+      index = merged;
       booksMeta = (remote.booksMeta && typeof remote.booksMeta === 'object')
         ? Object.assign({}, booksMeta || {}, remote.booksMeta)
         : (booksMeta || {});
