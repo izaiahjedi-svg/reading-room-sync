@@ -403,6 +403,10 @@
     padding:10px 18px;
     display:flex; gap:14px; align-items:center; flex-wrap:wrap;
   }
+  .reader-toolbar button.settings-collapse-btn{
+    margin-left:auto;
+    white-space:nowrap;
+  }
   .reader-toolbar .grp{ display:flex; align-items:center; gap:6px; }
   .reader-toolbar label{ font-size:11px; color:var(--ink-soft); text-transform:uppercase; letter-spacing:.06em; }
   .reader-toolbar select{
@@ -433,9 +437,32 @@
     position:sticky; bottom:0; z-index:20;
     display:flex; justify-content:space-between; gap:10px;
     padding:12px 18px; background:var(--paper); border-top:1px solid var(--line);
+    transition:transform .2s ease, opacity .2s ease;
   }
   .reader-nav button{ flex:1; max-width:200px; }
   .reader-nav .center-btn{ flex:none; }
+
+  .mobile-chrome-toggle{
+    position:fixed;
+    right:12px;
+    bottom:calc(env(safe-area-inset-bottom, 0px) + 14px);
+    z-index:85;
+    border-radius:999px;
+    padding:9px 12px;
+    font-size:12px;
+    box-shadow:var(--shadow);
+  }
+
+  body.reader-mobile-chrome-collapsed .topbar{
+    transform:translateY(-110%);
+    opacity:0;
+    pointer-events:none;
+  }
+  body.reader-mobile-chrome-collapsed .reader-nav{
+    transform:translateY(calc(100% + 12px));
+    opacity:0;
+    pointer-events:none;
+  }
 
   .side-drawer{
     position:fixed; top:0; left:0; bottom:0; width:280px; max-width:82vw; z-index:50;
@@ -505,7 +532,11 @@
     .reader-nav .center-btn{ display:none; }
   }
   @media (max-width:760px){
+    .topbar{ transition:transform .2s ease, opacity .2s ease; }
     .chapter-list.two-col{ grid-template-columns:1fr; }
+  }
+  @media (min-width:761px){
+    .mobile-chrome-toggle{ display:none !important; }
   }
 </style>
 </head>
@@ -922,7 +953,7 @@
       settings: { font:'Georgia, "Iowan Old Style", serif', fontSize:19, lineHeight:1.7, theme:'dark' }
     }
   };
-  let view = { mode:'library', chapterId:null, search:'', bookFilter:'', chapterSort:'book-volume-added', booksCollapsed:false, debugOpen:false };
+  let view = { mode:'library', chapterId:null, search:'', bookFilter:'', chapterSort:'book-volume-added', booksCollapsed:false, debugOpen:false, mobileChromeCollapsed:false };
   let saveTimer = null;
   let settingsSaveTimer = null;
   let pendingChapterTitle = '';
@@ -1127,6 +1158,15 @@
       return at ? ('Synced ' + at) : 'Synced';
     }
     return 'Sync ready';
+  }
+
+  function isMobileViewport(){
+    return !!(window.matchMedia && window.matchMedia('(max-width: 760px)').matches);
+  }
+
+  function applyReaderChromeState(){
+    const collapse = view.mode === 'reader' && isMobileViewport() && !!view.mobileChromeCollapsed;
+    document.body.classList.toggle('reader-mobile-chrome-collapsed', collapse);
   }
 
   function updateSyncStatusChip(){
@@ -2276,6 +2316,7 @@
 
   function returnToLibrary(){
     view.mode = 'library';
+    view.mobileChromeCollapsed = false;
     view.chapterId = null;
     view.bookFilter = '';
     view.search = '';
@@ -2758,6 +2799,7 @@
     renderTopbar();
     if (view.mode === 'library') renderLibrary();
     else renderReader();
+    applyReaderChromeState();
   }
 
   // ---------------------------------------------------------------
@@ -3540,6 +3582,7 @@
     view.mode = 'reader';
     view.chapterId = id;
     view.resume = !!resume;
+    if (!isMobileViewport()) view.mobileChromeCollapsed = false;
     view.sidebarOpen = false;
     render();
   }
@@ -3620,6 +3663,28 @@
     drawer.id = 'sideDrawer';
     document.body.append(backdrop, drawer);
     view._cleanupDrawer = () => { backdrop.remove(); drawer.remove(); };
+
+    if (isMobileViewport()) {
+      const chromeToggleBtn = document.createElement('button');
+      chromeToggleBtn.className = 'mobile-chrome-toggle primary';
+      chromeToggleBtn.type = 'button';
+      function updateChromeToggleLabel(){
+        chromeToggleBtn.textContent = view.mobileChromeCollapsed ? 'Show bars' : 'Hide bars';
+      }
+      updateChromeToggleLabel();
+      chromeToggleBtn.onclick = () => {
+        view.mobileChromeCollapsed = !view.mobileChromeCollapsed;
+        applyReaderChromeState();
+        updateChromeToggleLabel();
+      };
+      document.body.appendChild(chromeToggleBtn);
+      const prevCleanupDrawer = view._cleanupDrawer;
+      view._cleanupDrawer = () => {
+        if (typeof prevCleanupDrawer === 'function') prevCleanupDrawer();
+        chromeToggleBtn.remove();
+      };
+    }
+
     renderSidebar();
 
     // keyboard navigation (left/right arrows), ignored while typing in a control
@@ -3789,9 +3854,25 @@
     };
     progressGrp.appendChild(resetBtn);
 
-    bar.append(fontGrp, sizeGrp, lineGrp, progressGrp);
+    const collapseSettingsBtn = document.createElement('button');
+    collapseSettingsBtn.className = 'subtle settings-collapse-btn';
+    collapseSettingsBtn.type = 'button';
+    collapseSettingsBtn.textContent = 'Hide settings';
+    collapseSettingsBtn.onclick = () => {
+      view.settingsOpen = false;
+      render();
+    };
+
+    bar.append(fontGrp, sizeGrp, lineGrp, progressGrp, collapseSettingsBtn);
     return bar;
   }
+
+  window.addEventListener('resize', () => {
+    if (!isMobileViewport() && view.mobileChromeCollapsed) {
+      view.mobileChromeCollapsed = false;
+    }
+    applyReaderChromeState();
+  });
 
   init();
 })();
