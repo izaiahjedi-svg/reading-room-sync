@@ -906,6 +906,7 @@
   let pendingUploadBook = '';
   let pendingUploadVolume = '';
   let remoteSyncPrimed = false;
+  let attemptedRemoteBootstrap = false;
   let syncInFlight = false;
   let syncPending = false;
   let syncPendingReplace = false;
@@ -1593,10 +1594,24 @@
       const localIndex = Array.isArray(index) ? index : [];
       const shouldBlockEmptyMetaOverwrite = isMetaOnly && localIndex.length > 0 && remote.index.length === 0;
       if (shouldBlockEmptyMetaOverwrite) {
+        if (!attemptedRemoteBootstrap) {
+          attemptedRemoteBootstrap = true;
+          syncStatus = { state:'syncing', at:Date.now(), message:'Remote empty, uploading local library' };
+          updateSyncStatusChip();
+          const seeded = await pushRemoteLibrary();
+          syncStatus = {
+            state: seeded ? 'synced' : 'failed',
+            at: Date.now(),
+            message: seeded ? 'Remote repaired from local library' : 'Remote metadata empty, kept local library',
+          };
+          updateSyncStatusChip();
+          return seeded;
+        }
         syncStatus = { state:'failed', at:Date.now(), message:'Remote metadata empty, kept local library' };
         updateSyncStatusChip();
         return false;
       }
+      attemptedRemoteBootstrap = false;
       index = remote.index || [];
       booksMeta = (remote.booksMeta && typeof remote.booksMeta === 'object')
         ? Object.assign({}, booksMeta || {}, remote.booksMeta)
