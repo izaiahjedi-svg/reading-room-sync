@@ -1284,6 +1284,10 @@
       payloadBytes: payloadJson.length,
       chapterBodies: index.length - missingChapterCount,
       missingChapterCount,
+      browserRole: missingChapterCount === 0 && index.length > 0
+        ? 'source browser'
+        : (missingChapterCount >= index.length && index.length > 0 ? 'receiver browser' : 'mixed browser'),
+      backfillPercent: index.length ? Math.round(((index.length - missingChapterCount) / index.length) * 100) : 0,
       keysTotal: keys.length,
       keysScoped: scopedKeys.length,
       keysGlobal: globalKeys.length,
@@ -1322,6 +1326,8 @@
       'Last payload bytes: ' + syncDebug.lastPayloadBytes,
       'Last sync duration ms: ' + syncDebug.lastDurationMs,
       'Books/chapters: ' + d.books + '/' + d.chapters,
+      'Browser role: ' + (d.browserRole || 'n/a'),
+      'Chapter coverage: ' + (d.backfillPercent != null ? d.backfillPercent : 0) + '%',
       'Missing local chapter blobs: ' + d.missingChapterCount,
       'Global logical keys: ' + (d.keysGlobalLogical || 0),
       'Chunk fragment keys: ' + (d.keysChunk || 0),
@@ -3096,6 +3102,8 @@
               <div>Last payload: ${formatBytes(syncDebug.lastPayloadBytes)} | last sync time: ${syncDebug.lastDurationMs} ms</div>
               <div>Recovery pulls: ${syncDebug.recoveryAttempts}</div>
               <div>Books: ${d ? d.books : '-'} | Chapters: ${d ? d.chapters : '-'}</div>
+              <div>Browser role: ${d ? esc(d.browserRole || 'n/a') : '-'}</div>
+              <div>Chapter coverage: ${d ? (d.backfillPercent + '%') : '-'}</div>
               <div>Payload size now: ${d ? formatBytes(d.payloadBytes) : '-'}</div>
               <div>Stored keys: ${d ? d.keysTotal : '-'} (global ${d ? d.keysGlobal : '-'}, scoped ${d ? d.keysScoped : '-'})</div>
               <div>Global logical keys: ${d ? d.keysGlobalLogical : '-'} | chunk fragment keys: ${d ? d.keysChunk : '-'}</div>
