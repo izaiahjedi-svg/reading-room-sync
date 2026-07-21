@@ -923,9 +923,27 @@
     lastAt: 0,
     recoveryAttempts: 0,
   };
+  let backfillDebug = {
+    runs: 0,
+    total: 0,
+    checked: 0,
+    uploaded: 0,
+    failed: 0,
+    cursor: 0,
+    complete: false,
+    active: false,
+    lastRunAt: 0,
+    message: '',
+  };
+  let syncEvents = [];
   let mainPageDebug = { loading:false, data:null, error:'' };
   let pendingCoverDataUrl = null;
   let syncStatus = { state:'idle', at:0, message:'' };
+
+  function addSyncEvent(kind, message){
+    syncEvents.unshift({ at: Date.now(), kind: kind || 'info', message: message || '' });
+    if (syncEvents.length > 40) syncEvents = syncEvents.slice(0, 40);
+  }
 
   const FONT_OPTIONS = [
     { label:'Serif (Georgia)', value:'Georgia, "Iowan Old Style", serif' },
@@ -1231,7 +1249,48 @@
       keysTotal: keys.length,
       keysScoped: scopedKeys.length,
       keysGlobal: globalKeys.length,
+      backfill: Object.assign({}, backfillDebug),
+      events: syncEvents.slice(0, 12),
     };
+  }
+
+  async function runBackfillNow(){
+    await backfillRemoteChapters();
+    if (view.debugOpen && !routeBookSlug) await refreshMainPageDebug();
+  }
+
+  async function copyDebugReport(){
+    const d = await collectMainPageDebugData();
+    const backfill = d.backfill || {};
+    const events = (d.events || []).map((e) => {
+      const t = new Date(e.at || Date.now()).toLocaleTimeString();
+      return '[' + t + '] ' + (e.kind || 'info') + ': ' + (e.message || '');
+    });
+    const report = [
+      'Reading Room Debug Report',
+      'Time: ' + new Date().toISOString(),
+      'Sync status: ' + (syncStatus.state || 'idle') + ' - ' + (syncStatus.message || ''),
+      'Sync attempts/success/fail: ' + syncDebug.attempts + '/' + syncDebug.successes + '/' + syncDebug.failures,
+      'Last reason: ' + (syncDebug.lastReason || 'n/a'),
+      'Last payload bytes: ' + syncDebug.lastPayloadBytes,
+      'Last sync duration ms: ' + syncDebug.lastDurationMs,
+      'Books/chapters: ' + d.books + '/' + d.chapters,
+      'Missing local chapter blobs: ' + d.missingChapterCount,
+      'Backfill active: ' + (!!backfill.active),
+      'Backfill checked/total: ' + (backfill.checked || 0) + '/' + (backfill.total || 0),
+      'Backfill uploaded/failed: ' + (backfill.uploaded || 0) + '/' + (backfill.failed || 0),
+      'Backfill complete: ' + (!!backfill.complete),
+      'Backfill message: ' + (backfill.message || 'n/a'),
+      'Events:',
+      events.join('\n') || 'none'
+    ].join('\n');
+
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(report);
+      return true;
+    }
+    window.prompt('Copy debug report', report);
+    return true;
   }
 
   async function refreshMainPageDebug(){
@@ -1376,7 +1435,11 @@
         break;
       }
     }
-    if (!hasAnyLocalChapter) return;
+    if (!hasAnyLocalChapter) {
+      backfillDebug.message = 'No local chapter bodies to seed remote';
+      addSyncEvent('backfill-skip', backfillDebug.message);
+      return;
+    }
 
     const signature = hashString(ids.join('|'));
     const prev = readChapterBackfillState();
@@ -1384,6 +1447,9 @@
     if (sameSig && prev.complete) return;
 
     chapterBackfillInFlight = true;
+    backfillDebug.active = true;
+    backfillDebug.total = ids.length;
+    backfillDebug.message = 'Backfill running';
     try {
       const start = (sameSig && Number.isInteger(prev.cursor)) ? Math.max(0, prev.cursor) : 0;
       const maxChecksPerRun = 200;
@@ -1413,6 +1479,16 @@
       const completedPass = checks >= ids.length;
       const nextCursor = completedPass ? 0 : ((start + checks) % ids.length);
       const complete = completedPass && failed === 0;
+      backfillDebug.runs += 1;
+      backfillDebug.checked = checks;
+      backfillDebug.uploaded = uploaded;
+      backfillDebug.failed = failed;
+      backfillDebug.cursor = nextCursor;
+      backfillDebug.complete = complete;
+      backfillDebug.lastRunAt = Date.now();
+      backfillDebug.message = complete
+        ? 'Backfill complete'
+        : ('Backfill partial (' + checks + '/' + ids.length + ' checked)');
       writeChapterBackfillState({
         sig: signature,
         cursor: nextCursor,
@@ -1420,6 +1496,7 @@
         updatedAt: Date.now(),
       });
 
+      addSyncEvent('backfill', 'Checked ' + checks + '/' + ids.length + ', uploaded ' + uploaded + ', failed ' + failed);
       if (uploaded > 0 && syncStatus.state !== 'syncing') {
         syncStatus = {
           state: 'synced',
@@ -1429,6 +1506,7 @@
         updateSyncStatusChip();
       }
     } finally {
+      backfillDebug.active = false;
       chapterBackfillInFlight = false;
     }
   }
@@ -1629,6 +1707,9 @@
           message: ok ? 'Last sync saved to server' : 'Server rejected sync',
         };
         updateSyncStatusChip();
+        addSyncEvent(ok ? 'push-ok' : 'push-fail', ok
+          ? ('Saved metadata (' + (payload.index || []).length + ' chapters)')
+          : ('Server rejected sync (' + res.status + ')'));
       } while (syncPending);
 
       return overallOk;
@@ -1640,6 +1721,7 @@
       syncDebug.lastAt = Date.now();
       syncStatus = { state:'failed', at:Date.now(), message:'Sync failed: ' + e.message };
       updateSyncStatusChip();
+      addSyncEvent('push-fail', 'Sync failed: ' + e.message);
       return false;
     } finally {
       syncInFlight = false;
@@ -1650,14 +1732,17 @@
     if (!syncKey) {
       syncStatus = { state:'failed', at:Date.now(), message:'Missing sync key' };
       updateSyncStatusChip();
+      addSyncEvent('pull-fail', 'Missing sync key');
       return false;
     }
     syncStatus = { state:'syncing', at:Date.now(), message:'Loading latest data from server' };
     updateSyncStatusChip();
+    addSyncEvent('pull-start', 'Loading latest data from server');
     const remote = await loadRemoteLibrary(options);
     if (!remote || !Array.isArray(remote.index)) {
       syncStatus = { state:'failed', at:Date.now(), message:'Remote library unavailable' };
       updateSyncStatusChip();
+      addSyncEvent('pull-fail', 'Remote library unavailable');
       return false;
     }
     const isMetaOnly = !!(options && options.metaOnly);
@@ -1700,10 +1785,12 @@
             message: seeded ? 'Remote repaired from local library' : 'Remote metadata empty, kept local library',
           };
           updateSyncStatusChip();
+          addSyncEvent(seeded ? 'repair-ok' : 'repair-fail', syncStatus.message);
           return seeded;
         }
         syncStatus = { state:'failed', at:Date.now(), message:'Remote metadata empty, kept local library' };
         updateSyncStatusChip();
+        addSyncEvent('pull-fail', 'Remote metadata empty, kept local library');
         return false;
       }
       attemptedRemoteBootstrap = false;
@@ -1719,10 +1806,12 @@
     remoteSyncPrimed = true;
     lastSyncedPayloadSig = '';
     updateSyncStatusChip();
+    addSyncEvent('pull-ok', 'Pulled latest library from server (' + (remote.index || []).length + ' chapters)');
     if (!routeBookSlug) {
       setTimeout(() => {
         backfillRemoteChapters().catch((e) => {
           console.warn('Background chapter backfill failed', e);
+          addSyncEvent('backfill-fail', 'Background chapter backfill failed');
         });
       }, 0);
     }
@@ -2834,6 +2923,13 @@
         const panel = document.createElement('div');
         panel.className = 'continue-card';
         const d = mainPageDebug.data;
+        const b = (d && d.backfill) ? d.backfill : backfillDebug;
+        const eventRows = (d && d.events && d.events.length)
+          ? d.events.map((e) => {
+            const t = new Date(e.at || Date.now()).toLocaleTimeString();
+            return '<div>[' + esc(t) + '] ' + esc(e.kind || 'info') + ': ' + esc(e.message || '') + '</div>';
+          }).join('')
+          : '<div>No sync events yet.</div>';
         const statusLine = mainPageDebug.loading
           ? 'Collecting diagnostics...'
           : (mainPageDebug.error ? ('Diagnostics error: ' + esc(mainPageDebug.error)) : 'Diagnostics snapshot');
@@ -2850,14 +2946,47 @@
               <div>Payload size now: ${d ? formatBytes(d.payloadBytes) : '-'}</div>
               <div>Stored keys: ${d ? d.keysTotal : '-'} (global ${d ? d.keysGlobal : '-'}, scoped ${d ? d.keysScoped : '-'})</div>
               <div>Missing local chapter blobs: ${d ? d.missingChapterCount : '-'}</div>
+              <div>Backfill run: ${b.active ? 'active' : 'idle'} | checked ${b.checked || 0}/${b.total || 0} | uploaded ${b.uploaded || 0} | failed ${b.failed || 0}</div>
+              <div>Backfill state: ${b.complete ? 'complete' : 'incomplete'} | cursor ${b.cursor || 0} | runs ${b.runs || 0}</div>
+              <div>Backfill note: ${esc(b.message || 'n/a')}</div>
+              <div style="margin-top:8px;font-weight:600;">Recent sync events</div>
+              ${eventRows}
             </div>
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;align-self:flex-start;">
             <button id="refreshDebugBtn">Refresh diagnostics</button>
+            <button id="runBackfillBtn">Run backfill now</button>
+            <button id="copyDebugBtn">Copy debug report</button>
           </div>`;
         wrap.appendChild(panel);
         const refreshBtn = panel.querySelector('#refreshDebugBtn');
         if (refreshBtn) refreshBtn.onclick = () => refreshMainPageDebug();
+        const runBackfillBtn = panel.querySelector('#runBackfillBtn');
+        if (runBackfillBtn) runBackfillBtn.onclick = async () => {
+          runBackfillBtn.disabled = true;
+          runBackfillBtn.textContent = 'Running...';
+          try {
+            await runBackfillNow();
+          } finally {
+            runBackfillBtn.disabled = false;
+            runBackfillBtn.textContent = 'Run backfill now';
+          }
+        };
+        const copyDebugBtn = panel.querySelector('#copyDebugBtn');
+        if (copyDebugBtn) copyDebugBtn.onclick = async () => {
+          copyDebugBtn.disabled = true;
+          const prev = copyDebugBtn.textContent;
+          try {
+            await copyDebugReport();
+            copyDebugBtn.textContent = 'Copied';
+          } catch (e) {
+            copyDebugBtn.textContent = 'Copy failed';
+          }
+          setTimeout(() => {
+            copyDebugBtn.disabled = false;
+            copyDebugBtn.textContent = prev;
+          }, 1200);
+        };
       }
 
       renderBookGrid(wrap, index);
