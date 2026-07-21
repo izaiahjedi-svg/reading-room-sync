@@ -1661,6 +1661,54 @@
     }
   }
 
+  function normalizeProgressState(raw){
+    const src = (raw && typeof raw === 'object') ? raw : {};
+    const percents = {};
+    const srcPercents = (src.percents && typeof src.percents === 'object') ? src.percents : {};
+    for (const chapterId of Object.keys(srcPercents)) {
+      const n = Number(srcPercents[chapterId]);
+      if (!Number.isFinite(n)) continue;
+      percents[chapterId] = Math.max(0, Math.min(100, n));
+    }
+    const lastChapterId = (typeof src.lastChapterId === 'string' && src.lastChapterId)
+      ? src.lastChapterId
+      : null;
+    return { lastChapterId, percents };
+  }
+
+  function progressEntryCount(progress){
+    if (!progress || typeof progress !== 'object' || !progress.percents || typeof progress.percents !== 'object') return 0;
+    return Object.keys(progress.percents).length;
+  }
+
+  function hasMeaningfulProgress(progress){
+    if (!progress || typeof progress !== 'object') return false;
+    if (progress.lastChapterId) return true;
+    return progressEntryCount(progress) > 0;
+  }
+
+  function mergeProgressState(localProgressRaw, remoteProgressRaw){
+    const localProgress = normalizeProgressState(localProgressRaw);
+    const remoteProgress = normalizeProgressState(remoteProgressRaw);
+    const mergedPercents = Object.assign({}, localProgress.percents);
+    for (const chapterId of Object.keys(remoteProgress.percents)) {
+      const remotePct = Number(remoteProgress.percents[chapterId]);
+      const localPct = Number(mergedPercents[chapterId] || 0);
+      mergedPercents[chapterId] = Math.max(localPct, remotePct);
+    }
+
+    let lastChapterId = localProgress.lastChapterId || null;
+    if (!lastChapterId && remoteProgress.lastChapterId) {
+      lastChapterId = remoteProgress.lastChapterId;
+    } else if (remoteProgress.lastChapterId) {
+      const localLastPct = Number(mergedPercents[localProgress.lastChapterId] || 0);
+      const remoteLastPct = Number(mergedPercents[remoteProgress.lastChapterId] || 0);
+      if (remoteLastPct > localLastPct) lastChapterId = remoteProgress.lastChapterId;
+    }
+
+    return { lastChapterId, percents: mergedPercents };
+  }
+
   async function loadRemoteState(profileId){
     if (!syncKey) return null;
     try {
@@ -1671,7 +1719,9 @@
       const res = await fetch(url.toString());
       if (!res.ok) return null;
       const payload = await res.json();
-      return payload && payload.data ? payload.data : null;
+      if (!payload || typeof payload !== 'object' || !payload.data || typeof payload.data !== 'object') return null;
+      const exportedAt = Number(payload.exportedAt || payload.data.exportedAt || 0) || 0;
+      return { data: payload.data, exportedAt };
     } catch (e) {
       console.warn('Remote state load failed', e);
       return null;
@@ -1682,11 +1732,11 @@
     if (!syncKey) return false;
     try {
       const pid = (profileId || activeProfileId || 'izaiah').toString().trim().toLowerCase();
-      const state = getActiveProfileState();
+      const state = profileState[pid] || getActiveProfileState();
       const body = {
         version: 1,
         exportedAt: Date.now(),
-        progress: state.progress || { lastChapterId: null, percents: {} },
+        progress: normalizeProgressState(state.progress),
         settings: state.settings || {},
       };
       const res = await fetch(STATE_ENDPOINT, {
@@ -1707,7 +1757,9 @@
 
   async function syncStateFromRemote(profileId){
     const pid = (profileId || activeProfileId || 'izaiah').toString().trim().toLowerCase();
-    const remoteState = await loadRemoteState(pid);
+    const remoteEnvelope = await loadRemoteState(pid);
+    if (!remoteEnvelope || typeof remoteEnvelope !== 'object') return false;
+    const remoteState = remoteEnvelope.data;
     if (!remoteState || typeof remoteState !== 'object') return false;
     if (!profileState[pid]) {
       profileState[pid] = {
@@ -1715,7 +1767,29 @@
         settings: getDefaultProfileSettings()
       };
     }
-    if (remoteState.progress) profileState[pid].progress = remoteState.progress;
+
+    const localProgress = normalizeProgressState(profileState[pid].progress);
+    const remoteProgress = normalizeProgressState(remoteState.progress);
+    const localHasProgress = hasMeaningfulProgress(localProgress);
+    const remoteHasProgress = hasMeaningfulProgress(remoteProgress);
+
+    if (remoteHasProgress && !localHasProgress) {
+      profileState[pid].progress = remoteProgress;
+      addSyncEvent('state-pull', 'Profile ' + pid + ': loaded remote progress');
+    } else if (remoteHasProgress && localHasProgress) {
+      profileState[pid].progress = mergeProgressState(localProgress, remoteProgress);
+      addSyncEvent('state-merge', 'Profile ' + pid + ': merged local/remote progress');
+    } else if (!remoteHasProgress && localHasProgress) {
+      profileState[pid].progress = localProgress;
+      addSyncEvent('state-keep', 'Profile ' + pid + ': kept local progress (remote empty)');
+      const repaired = await pushRemoteState(pid);
+      addSyncEvent(repaired ? 'state-repair' : 'state-repair-fail', repaired
+        ? ('Profile ' + pid + ': repaired remote progress from local')
+        : ('Profile ' + pid + ': remote progress repair failed'));
+    } else {
+      profileState[pid].progress = localProgress;
+    }
+
     if (remoteState.settings) Object.assign(profileState[pid].settings, remoteState.settings);
     await storageSet('profile-state', profileState);
     return true;
