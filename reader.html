@@ -907,6 +907,7 @@
   let pendingUploadVolume = '';
   let remoteSyncPrimed = false;
   let attemptedRemoteBootstrap = false;
+  let chapterBackfillInFlight = false;
   let syncInFlight = false;
   let syncPending = false;
   let syncPendingReplace = false;
@@ -1338,6 +1339,100 @@
     }
   }
 
+  function getChapterBackfillStateKey(){
+    return 'reading-room:chapter-backfill:' + (syncKey || '');
+  }
+
+  function readChapterBackfillState(){
+    if (!syncKey) return null;
+    try {
+      const raw = window.localStorage.getItem(getChapterBackfillStateKey());
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      return (parsed && typeof parsed === 'object') ? parsed : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function writeChapterBackfillState(state){
+    if (!syncKey) return;
+    try {
+      window.localStorage.setItem(getChapterBackfillStateKey(), JSON.stringify(state || {}));
+    } catch (e) {}
+  }
+
+  async function backfillRemoteChapters(){
+    if (!syncKey || routeBookSlug || chapterBackfillInFlight) return;
+    const ids = (Array.isArray(index) ? index : []).map((ch) => ch && ch.id).filter(Boolean);
+    if (!ids.length) return;
+
+    // If this browser has no local chapter bodies, it cannot seed remote chapter blobs.
+    let hasAnyLocalChapter = false;
+    for (const id of ids) {
+      const local = await storageGet('chapter:' + id);
+      if (local && typeof local.content === 'string' && local.content.length) {
+        hasAnyLocalChapter = true;
+        break;
+      }
+    }
+    if (!hasAnyLocalChapter) return;
+
+    const signature = hashString(ids.join('|'));
+    const prev = readChapterBackfillState();
+    const sameSig = !!(prev && prev.sig === signature);
+    if (sameSig && prev.complete) return;
+
+    chapterBackfillInFlight = true;
+    try {
+      const start = (sameSig && Number.isInteger(prev.cursor)) ? Math.max(0, prev.cursor) : 0;
+      const maxChecksPerRun = 200;
+      let checks = 0;
+      let uploaded = 0;
+      let failed = 0;
+
+      for (let offset = 0; offset < ids.length && checks < maxChecksPerRun; offset++) {
+        const idxPos = (start + offset) % ids.length;
+        const chapterId = ids[idxPos];
+        checks++;
+
+        const local = await storageGet('chapter:' + chapterId);
+        if (!local || typeof local.content !== 'string' || !local.content.length) continue;
+
+        const remote = await loadChapterFromRemote(chapterId);
+        if (remote && typeof remote.content === 'string' && remote.content.length) continue;
+
+        const ok = await pushChapterToRemote(chapterId, {
+          title: local.title || '',
+          content: local.content,
+        });
+        if (ok) uploaded++;
+        else failed++;
+      }
+
+      const completedPass = checks >= ids.length;
+      const nextCursor = completedPass ? 0 : ((start + checks) % ids.length);
+      const complete = completedPass && failed === 0;
+      writeChapterBackfillState({
+        sig: signature,
+        cursor: nextCursor,
+        complete,
+        updatedAt: Date.now(),
+      });
+
+      if (uploaded > 0 && syncStatus.state !== 'syncing') {
+        syncStatus = {
+          state: 'synced',
+          at: Date.now(),
+          message: 'Backfilled ' + uploaded + ' chapter(s) to server',
+        };
+        updateSyncStatusChip();
+      }
+    } finally {
+      chapterBackfillInFlight = false;
+    }
+  }
+
   async function loadRemoteState(profileId){
     if (!syncKey) return null;
     try {
@@ -1624,6 +1719,13 @@
     remoteSyncPrimed = true;
     lastSyncedPayloadSig = '';
     updateSyncStatusChip();
+    if (!routeBookSlug) {
+      setTimeout(() => {
+        backfillRemoteChapters().catch((e) => {
+          console.warn('Background chapter backfill failed', e);
+        });
+      }, 0);
+    }
     applyTheme();
     render();
     return true;
