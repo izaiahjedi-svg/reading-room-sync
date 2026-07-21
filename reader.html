@@ -909,6 +909,8 @@
   let attemptedRemoteBootstrap = false;
   let chapterBackfillInFlight = false;
   let chapterBackfillTimer = null;
+  let scopedCleanupInFlight = false;
+  let scopedCleanupTimer = null;
   let syncInFlight = false;
   let syncPending = false;
   let syncPendingReplace = false;
@@ -933,6 +935,16 @@
     cursor: 0,
     complete: false,
     active: false,
+    lastRunAt: 0,
+    message: '',
+  };
+  let scopedCleanupDebug = {
+    runs: 0,
+    total: 0,
+    deleted: 0,
+    remaining: 0,
+    active: false,
+    complete: false,
     lastRunAt: 0,
     message: '',
   };
@@ -1251,6 +1263,7 @@
       keysScoped: scopedKeys.length,
       keysGlobal: globalKeys.length,
       backfill: Object.assign({}, backfillDebug),
+      scopedCleanup: Object.assign({}, scopedCleanupDebug),
       events: syncEvents.slice(0, 12),
     };
   }
@@ -1260,9 +1273,15 @@
     if (view.debugOpen && !routeBookSlug) await refreshMainPageDebug();
   }
 
+  async function runScopedCleanupNow(){
+    await cleanupLegacyScopedKeys();
+    if (view.debugOpen && !routeBookSlug) await refreshMainPageDebug();
+  }
+
   async function copyDebugReport(){
     const d = await collectMainPageDebugData();
     const backfill = d.backfill || {};
+    const cleanup = d.scopedCleanup || {};
     const events = (d.events || []).map((e) => {
       const t = new Date(e.at || Date.now()).toLocaleTimeString();
       return '[' + t + '] ' + (e.kind || 'info') + ': ' + (e.message || '');
@@ -1282,6 +1301,10 @@
       'Backfill uploaded/failed: ' + (backfill.uploaded || 0) + '/' + (backfill.failed || 0),
       'Backfill complete: ' + (!!backfill.complete),
       'Backfill message: ' + (backfill.message || 'n/a'),
+      'Scoped cleanup deleted/remaining: ' + (cleanup.deleted || 0) + '/' + (cleanup.remaining || 0),
+      'Scoped cleanup runs: ' + (cleanup.runs || 0),
+      'Scoped cleanup active: ' + (!!cleanup.active),
+      'Scoped cleanup message: ' + (cleanup.message || 'n/a'),
       'Events:',
       events.join('\n') || 'none'
     ].join('\n');
@@ -1432,6 +1455,68 @@
         addSyncEvent('backfill-fail', 'Scheduled chapter backfill failed');
       });
     }, Math.max(250, delayMs || 1000));
+  }
+
+  function scheduleScopedCleanupContinuation(delayMs){
+    if (routeBookSlug) return;
+    if (scopedCleanupTimer) return;
+    scopedCleanupTimer = setTimeout(() => {
+      scopedCleanupTimer = null;
+      cleanupLegacyScopedKeys().catch((e) => {
+        console.warn('Scheduled scoped cleanup failed', e);
+        addSyncEvent('cleanup-fail', 'Scheduled scoped cleanup failed');
+      });
+    }, Math.max(400, delayMs || 1200));
+  }
+
+  async function cleanupLegacyScopedKeys(){
+    if (routeBookSlug || scopedCleanupInFlight) return;
+    scopedCleanupInFlight = true;
+    scopedCleanupDebug.active = true;
+    scopedCleanupDebug.message = 'Scoped key cleanup running';
+    try {
+      const keysRes = await window.storage.list('');
+      const keys = (keysRes && keysRes.keys) ? keysRes.keys : [];
+      const scopedKeys = keys.filter((k) => /^book:[^:]+:/.test(k));
+      scopedCleanupDebug.total = scopedKeys.length;
+      scopedCleanupDebug.remaining = scopedKeys.length;
+
+      if (!scopedKeys.length) {
+        scopedCleanupDebug.complete = true;
+        scopedCleanupDebug.lastRunAt = Date.now();
+        scopedCleanupDebug.message = 'No legacy scoped keys found';
+        return;
+      }
+
+      const maxDeletesPerRun = 800;
+      let deletedNow = 0;
+      for (let i = 0; i < scopedKeys.length && deletedNow < maxDeletesPerRun; i++) {
+        const key = scopedKeys[i];
+        try {
+          await window.storage.delete(key, false);
+          deletedNow++;
+        } catch (e) {
+          // Keep going; a few failed deletes should not block cleanup.
+        }
+      }
+
+      scopedCleanupDebug.runs += 1;
+      scopedCleanupDebug.deleted += deletedNow;
+      scopedCleanupDebug.remaining = Math.max(0, scopedKeys.length - deletedNow);
+      scopedCleanupDebug.complete = scopedCleanupDebug.remaining === 0;
+      scopedCleanupDebug.lastRunAt = Date.now();
+      scopedCleanupDebug.message = scopedCleanupDebug.complete
+        ? 'Scoped key cleanup complete'
+        : ('Scoped key cleanup partial (' + deletedNow + '/' + scopedKeys.length + ' this run)');
+      addSyncEvent('cleanup', 'Deleted ' + deletedNow + ' scoped key(s), remaining ~' + scopedCleanupDebug.remaining);
+
+      if (!scopedCleanupDebug.complete) {
+        scheduleScopedCleanupContinuation(900);
+      }
+    } finally {
+      scopedCleanupDebug.active = false;
+      scopedCleanupInFlight = false;
+    }
   }
 
   async function backfillRemoteChapters(){
@@ -1837,6 +1922,12 @@
           addSyncEvent('backfill-fail', 'Background chapter backfill failed');
         });
       }, 0);
+      setTimeout(() => {
+        cleanupLegacyScopedKeys().catch((e) => {
+          console.warn('Background scoped cleanup failed', e);
+          addSyncEvent('cleanup-fail', 'Background scoped cleanup failed');
+        });
+      }, 120);
     }
     applyTheme();
     render();
@@ -1913,6 +2004,15 @@
       stateTask.catch((e) => {
         console.warn('Initial remote state sync failed', e);
       });
+    }
+
+    if (!routeBookSlug) {
+      setTimeout(() => {
+        cleanupLegacyScopedKeys().catch((e) => {
+          console.warn('Initial scoped cleanup failed', e);
+          addSyncEvent('cleanup-fail', 'Initial scoped cleanup failed');
+        });
+      }, 600);
     }
   }
 
@@ -2947,6 +3047,7 @@
         panel.className = 'continue-card';
         const d = mainPageDebug.data;
         const b = (d && d.backfill) ? d.backfill : backfillDebug;
+        const c = (d && d.scopedCleanup) ? d.scopedCleanup : scopedCleanupDebug;
         const eventRows = (d && d.events && d.events.length)
           ? d.events.map((e) => {
             const t = new Date(e.at || Date.now()).toLocaleTimeString();
@@ -2972,6 +3073,8 @@
               <div>Backfill run: ${b.active ? 'active' : 'idle'} | checked ${b.checked || 0}/${b.total || 0} | uploaded ${b.uploaded || 0} | failed ${b.failed || 0}</div>
               <div>Backfill state: ${b.complete ? 'complete' : 'incomplete'} | cursor ${b.cursor || 0} | runs ${b.runs || 0}</div>
               <div>Backfill note: ${esc(b.message || 'n/a')}</div>
+              <div>Scoped cleanup: ${c.active ? 'active' : 'idle'} | deleted ${c.deleted || 0} | remaining ~${c.remaining || 0} | runs ${c.runs || 0}</div>
+              <div>Scoped cleanup note: ${esc(c.message || 'n/a')}</div>
               <div style="margin-top:8px;font-weight:600;">Recent sync events</div>
               ${eventRows}
             </div>
@@ -2979,6 +3082,7 @@
           <div style="display:flex;gap:8px;flex-wrap:wrap;align-self:flex-start;">
             <button id="refreshDebugBtn">Refresh diagnostics</button>
             <button id="runBackfillBtn">Run backfill now</button>
+            <button id="runCleanupBtn">Run scoped cleanup</button>
             <button id="copyDebugBtn">Copy debug report</button>
           </div>`;
         wrap.appendChild(panel);
@@ -2993,6 +3097,17 @@
           } finally {
             runBackfillBtn.disabled = false;
             runBackfillBtn.textContent = 'Run backfill now';
+          }
+        };
+        const runCleanupBtn = panel.querySelector('#runCleanupBtn');
+        if (runCleanupBtn) runCleanupBtn.onclick = async () => {
+          runCleanupBtn.disabled = true;
+          runCleanupBtn.textContent = 'Running...';
+          try {
+            await runScopedCleanupNow();
+          } finally {
+            runCleanupBtn.disabled = false;
+            runCleanupBtn.textContent = 'Run scoped cleanup';
           }
         };
         const copyDebugBtn = panel.querySelector('#copyDebugBtn');
