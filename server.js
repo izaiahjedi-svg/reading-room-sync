@@ -551,11 +551,12 @@ async function readUnifiedData(key) {
 }
 
 function getProfileState(data, profileId) {
+  const src = (data && typeof data === 'object') ? data : {};
   const pid = normalizeProfileId(profileId);
-  const stateProfiles = (data && typeof data.stateProfiles === 'object' && data.stateProfiles) || {};
+  const stateProfiles = (src && typeof src.stateProfiles === 'object' && src.stateProfiles) || {};
   const existing = (stateProfiles[pid] && typeof stateProfiles[pid] === 'object') ? stateProfiles[pid] : null;
-  const progress = (existing && existing.progress) || data.progress || { lastChapterId: null, percents: {} };
-  const settings = (existing && existing.settings) || data.settings || {};
+  const progress = (existing && existing.progress) || src.progress || { lastChapterId: null, percents: {} };
+  const settings = (existing && existing.settings) || src.settings || {};
   const updatedAt = (existing && existing.updatedAt) || 0;
   return { profileId: pid, progress, settings, updatedAt };
 }
