@@ -84,9 +84,10 @@ function githubHeaders() {
 function enqueueGitHubWrite(queueKey, task) {
   const existing = githubWriteQueues.get(queueKey) || Promise.resolve();
   const next = existing.catch(() => {}).then(task);
-  githubWriteQueues.set(queueKey, next.finally(() => {
-    if (githubWriteQueues.get(queueKey) === next) githubWriteQueues.delete(queueKey);
-  }));
+  const tracked = next.catch(() => {}).finally(() => {
+    if (githubWriteQueues.get(queueKey) === tracked) githubWriteQueues.delete(queueKey);
+  });
+  githubWriteQueues.set(queueKey, tracked);
   return next;
 }
 
@@ -113,31 +114,43 @@ async function githubWriteJson(filePath, value, message) {
   if (!githubStorageConfig) return false;
   const payload = Buffer.from(JSON.stringify(value || {}), 'utf8').toString('base64');
   return enqueueGitHubWrite(filePath, async () => {
-    const existing = await fetch(githubFileUrl(filePath) + '?ref=' + encodeURIComponent(githubStorageConfig.branch), {
-      headers: githubHeaders(),
-    });
-    let sha = null;
-    if (existing.ok) {
-      try {
-        const current = await existing.json();
-        sha = current && current.sha ? current.sha : null;
-      } catch (e) {}
-    }
-    const res = await fetch(githubFileUrl(filePath), {
-      method: 'PUT',
-      headers: Object.assign({ 'Content-Type': 'application/json' }, githubHeaders()),
-      body: JSON.stringify({
-        message: message || ('Update ' + filePath),
-        content: payload,
-        branch: githubStorageConfig.branch,
-        ...(sha ? { sha } : {}),
-      }),
-    });
-    if (!res.ok) {
+    const maxAttempts = 4;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      const existing = await fetch(githubFileUrl(filePath) + '?ref=' + encodeURIComponent(githubStorageConfig.branch), {
+        headers: githubHeaders(),
+      });
+      let sha = null;
+      if (existing.ok) {
+        try {
+          const current = await existing.json();
+          sha = current && current.sha ? current.sha : null;
+        } catch (e) {}
+      }
+
+      const res = await fetch(githubFileUrl(filePath), {
+        method: 'PUT',
+        headers: Object.assign({ 'Content-Type': 'application/json' }, githubHeaders()),
+        body: JSON.stringify({
+          message: message || ('Update ' + filePath),
+          content: payload,
+          branch: githubStorageConfig.branch,
+          ...(sha ? { sha } : {}),
+        }),
+      });
+
+      if (res.ok) {
+        return true;
+      }
+
       const text = await res.text().catch(() => '');
+      if (res.status === 409 && attempt < maxAttempts) {
+        // Another client updated the file between read and write; retry with latest sha.
+        await new Promise((resolve) => setTimeout(resolve, 80 * attempt));
+        continue;
+      }
       throw new Error('GitHub write failed for ' + filePath + ' (' + res.status + '): ' + text.slice(0, 200));
     }
-    return true;
+    return false;
   });
 }
 
