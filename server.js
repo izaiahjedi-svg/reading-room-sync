@@ -689,7 +689,18 @@ app.get('/webapp/reader.html', (req, res) => {
   res.redirect(302, '/reader.html' + query);
 });
 
+app.get('/webapp/reader.htm', (req, res) => {
+  const query = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+  res.redirect(302, '/reader.html' + query);
+});
+
 app.get('/webapp/:bookSlug/reader.html', (req, res) => {
+  const slug = encodeURIComponent((req.params.bookSlug || '').trim());
+  const query = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+  res.redirect(302, '/' + slug + '/reader.html' + query);
+});
+
+app.get('/webapp/:bookSlug/reader.htm', (req, res) => {
   const slug = encodeURIComponent((req.params.bookSlug || '').trim());
   const query = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
   res.redirect(302, '/' + slug + '/reader.html' + query);
@@ -697,6 +708,12 @@ app.get('/webapp/:bookSlug/reader.html', (req, res) => {
 
 app.get('/:bookSlug/reader.html', (req, res) => {
   res.sendFile(path.join(__dirname, 'reader.html'));
+});
+
+app.get('/:bookSlug/reader.htm', (req, res) => {
+  const slug = encodeURIComponent((req.params.bookSlug || '').trim());
+  const query = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+  res.redirect(302, '/' + slug + '/reader.html' + query);
 });
 
 app.listen(port, () => {
