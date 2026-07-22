@@ -2186,42 +2186,49 @@
         return false;
       }
       attemptedRemoteBootstrap = false;
-      // Root pulls are non-destructive: merge remote into local so transient
-      // server or scope issues never wipe local chapters.
+      // Root pulls are remote-authoritative so stale local references do not linger forever.
+      // Keep only a small set of very recent local-only chapters with real local bodies.
       const remoteIndex = Array.isArray(remote.index) ? remote.index : [];
       const remoteIds = new Set(remoteIndex.map((entry) => entry && entry.id).filter(Boolean));
-      const byId = new Map();
       const merged = [];
-      let prunedLocalOnlyMissing = 0;
-      for (const entry of localIndex) {
-        const id = entry && entry.id;
-        if (id && !byId.has(id)) {
-          if (!remoteIds.has(id)) {
-            const localChapter = await storageGet('chapter:' + id);
-            const hasLocalBody = !!(localChapter && typeof localChapter.content === 'string' && localChapter.content.length);
-            if (!hasLocalBody) {
-              prunedLocalOnlyMissing++;
-              continue;
-            }
-          }
-          byId.set(id, merged.length);
-          merged.push(entry);
-        } else if (!id) {
-          merged.push(entry);
-        }
-      }
+      const seen = new Set();
       for (const entry of remoteIndex) {
         const id = entry && entry.id;
-        if (id && byId.has(id)) {
-          merged[byId.get(id)] = entry;
-        } else {
-          if (id) byId.set(id, merged.length);
+        if (!id || seen.has(id)) continue;
+        seen.add(id);
+        merged.push(entry);
+      }
+
+      const keepLocalOnlyAgeMs = 6 * 60 * 60 * 1000;
+      const keepLocalOnlyLimit = 250;
+      let keptLocalOnly = 0;
+      let prunedLocalOnly = 0;
+      const now = Date.now();
+
+      for (const entry of localIndex) {
+        const id = entry && entry.id;
+        if (!id || remoteIds.has(id) || seen.has(id)) continue;
+
+        const localChapter = await storageGet('chapter:' + id);
+        const hasLocalBody = !!(localChapter && typeof localChapter.content === 'string' && localChapter.content.length);
+        const addedAt = Number(entry && entry.addedAt ? entry.addedAt : 0);
+        const isRecent = addedAt > 0 && (now - addedAt) <= keepLocalOnlyAgeMs;
+
+        if (hasLocalBody && isRecent && keptLocalOnly < keepLocalOnlyLimit) {
+          seen.add(id);
           merged.push(entry);
+          keptLocalOnly++;
+        } else {
+          prunedLocalOnly++;
         }
       }
+
       index = merged;
-      if (prunedLocalOnlyMissing > 0) {
-        addSyncEvent('pull-prune', 'Pruned ' + prunedLocalOnlyMissing + ' stale local chapter reference(s) with missing content');
+      if (prunedLocalOnly > 0) {
+        addSyncEvent('pull-prune', 'Pruned ' + prunedLocalOnly + ' stale local-only chapter reference(s)');
+      }
+      if (keptLocalOnly > 0) {
+        addSyncEvent('pull-keep-local', 'Kept ' + keptLocalOnly + ' recent local-only chapter(s) for later upload');
       }
       booksMeta = (remote.booksMeta && typeof remote.booksMeta === 'object')
         ? Object.assign({}, booksMeta || {}, remote.booksMeta)
