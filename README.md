@@ -27,6 +27,17 @@ npm start
 
 Then open the app at `http://localhost:3000/`.
 
+## GitHub-backed storage
+Render now stores sync data in GitHub instead of the local filesystem.
+
+Set these environment variables on Render:
+- `GITHUB_TOKEN`: a fine-grained token with read/write access to the sync repository
+- `GITHUB_REPOSITORY`: the repo in `owner/name` form
+- `GITHUB_BRANCH`: the branch used for sync data, usually `data`
+- `GITHUB_DB_PREFIX`: optional folder name inside the branch, defaults to `sync-db`
+
+The app keeps the code on `main` and writes sync data to a separate branch so redeploys do not wipe progress or chapters.
+
 ## Notes
 - `reader.html` is the only frontend source file that should be edited for the deployed app.
 - Root `server.js`, `render.yaml`, and `package.json` are the only deployment files used by Render.

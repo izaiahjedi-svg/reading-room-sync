@@ -186,6 +186,21 @@ def push_remote_library(data: Dict) -> None:
         raise RuntimeError(f"POST sync failed ({response.status_code}): {response.text[:200]}")
 
 
+def load_remote_chapter(chapter_id: str) -> Optional[Dict[str, str]]:
+    get_url, _ = get_sync_urls()
+    if not get_url or not chapter_id:
+        return None
+
+    chapter_url = f"{get_url}&id={chapter_id}"
+    response = requests.get(chapter_url, timeout=REQUEST_TIMEOUT)
+    if response.status_code != 200:
+        return None
+
+    payload = response.json()
+    data = payload.get("data") if isinstance(payload, dict) else None
+    return data if isinstance(data, dict) else None
+
+
 def fetch_chapter(book_url: str, chapter_num: int) -> Optional[Dict[str, str]]:
     chapter_url = f"{book_url.rstrip('/')}/chapter-{chapter_num}"
 
@@ -290,7 +305,7 @@ def update_book(data: Dict, book_cfg: Dict) -> Dict[str, int]:
         if chapter_num in existing_map:
             entry = existing_map[chapter_num]
             chapter_id = entry["id"]
-            chapter_data = chapters.get(chapter_id) or {}
+            chapter_data = load_remote_chapter(chapter_id) or chapters.get(chapter_id) or {}
             old_content = (chapter_data.get("content") or "").strip()
             old_title = (entry.get("title") or "").strip()
             old_volume = (entry.get("volume") or "")

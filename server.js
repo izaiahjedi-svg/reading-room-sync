@@ -19,6 +19,226 @@ if (!fs.existsSync(chapterDir)) fs.mkdirSync(chapterDir, { recursive: true });
 app.use(express.json({ limit: '200mb' }));
 app.use(express.static(__dirname));
 
+function parseGitHubRepoSpec(value) {
+  const raw = (value || '').toString().trim();
+  if (!raw) return null;
+  const parts = raw.split('/').filter(Boolean);
+  if (parts.length < 2) return null;
+  return { owner: parts[0], repo: parts.slice(1).join('/') };
+}
+
+function getGitHubStorageConfig() {
+  const token = (process.env.GITHUB_TOKEN || '').toString().trim();
+  const branch = (process.env.GITHUB_BRANCH || 'data').toString().trim() || 'data';
+  const prefix = (process.env.GITHUB_DB_PREFIX || 'sync-db').toString().trim().replace(/^\/+|\/+$/g, '') || 'sync-db';
+  const repoSpec = parseGitHubRepoSpec(process.env.GITHUB_REPOSITORY || process.env.GITHUB_REPO || '');
+  const owner = (process.env.GITHUB_OWNER || (repoSpec && repoSpec.owner) || '').toString().trim();
+  const repo = (process.env.GITHUB_REPO_NAME || (repoSpec && repoSpec.repo) || '').toString().trim();
+  if (!token || !owner || !repo) return null;
+  return { token, owner, repo, branch, prefix };
+}
+
+const githubStorageConfig = getGitHubStorageConfig();
+const githubWriteQueues = new Map();
+
+if (githubStorageConfig) {
+  console.log('GitHub-backed sync storage enabled for ' + githubStorageConfig.owner + '/' + githubStorageConfig.repo + ' @ ' + githubStorageConfig.branch);
+}
+
+function githubRootPathForKey(key) {
+  return githubStorageConfig ? (githubStorageConfig.prefix + '/' + keyDigest(key)) : '';
+}
+
+function githubPathForKey(key, leafPath) {
+  return githubStorageConfig ? (githubRootPathForKey(key) + '/' + leafPath.replace(/^\/+/, '')) : '';
+}
+
+function githubFileUrl(filePath) {
+  return 'https://api.github.com/repos/' + encodeURIComponent(githubStorageConfig.owner) + '/' + encodeURIComponent(githubStorageConfig.repo) + '/contents/' + filePath.split('/').map((part) => encodeURIComponent(part)).join('/');
+}
+
+function githubHeaders() {
+  return {
+    'Authorization': 'Bearer ' + githubStorageConfig.token,
+    'Accept': 'application/vnd.github+json',
+    'X-GitHub-Api-Version': '2022-11-28',
+  };
+}
+
+function enqueueGitHubWrite(queueKey, task) {
+  const existing = githubWriteQueues.get(queueKey) || Promise.resolve();
+  const next = existing.catch(() => {}).then(task);
+  githubWriteQueues.set(queueKey, next.finally(() => {
+    if (githubWriteQueues.get(queueKey) === next) githubWriteQueues.delete(queueKey);
+  }));
+  return next;
+}
+
+async function githubReadJson(filePath) {
+  if (!githubStorageConfig) return null;
+  try {
+    const res = await fetch(githubFileUrl(filePath) + '?ref=' + encodeURIComponent(githubStorageConfig.branch), {
+      headers: githubHeaders(),
+    });
+    if (res.status === 404) return null;
+    if (!res.ok) return null;
+    const payload = await res.json();
+    const content = payload && payload.content ? payload.content.replace(/\n/g, '') : '';
+    if (!content) return null;
+    const text = Buffer.from(content, 'base64').toString('utf8');
+    return JSON.parse(text);
+  } catch (e) {
+    console.warn('GitHub read failed for', filePath, e.message);
+    return null;
+  }
+}
+
+async function githubWriteJson(filePath, value, message) {
+  if (!githubStorageConfig) return false;
+  const payload = Buffer.from(JSON.stringify(value || {}), 'utf8').toString('base64');
+  return enqueueGitHubWrite(filePath, async () => {
+    const existing = await fetch(githubFileUrl(filePath) + '?ref=' + encodeURIComponent(githubStorageConfig.branch), {
+      headers: githubHeaders(),
+    });
+    let sha = null;
+    if (existing.ok) {
+      try {
+        const current = await existing.json();
+        sha = current && current.sha ? current.sha : null;
+      } catch (e) {}
+    }
+    const res = await fetch(githubFileUrl(filePath), {
+      method: 'PUT',
+      headers: Object.assign({ 'Content-Type': 'application/json' }, githubHeaders()),
+      body: JSON.stringify({
+        message: message || ('Update ' + filePath),
+        content: payload,
+        branch: githubStorageConfig.branch,
+        ...(sha ? { sha } : {}),
+      }),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error('GitHub write failed for ' + filePath + ' (' + res.status + '): ' + text.slice(0, 200));
+    }
+    return true;
+  });
+}
+
+async function githubDeleteJson(filePath, message) {
+  if (!githubStorageConfig) return false;
+  return enqueueGitHubWrite(filePath, async () => {
+    const existing = await fetch(githubFileUrl(filePath) + '?ref=' + encodeURIComponent(githubStorageConfig.branch), {
+      headers: githubHeaders(),
+    });
+    if (!existing.ok) return true;
+    const current = await existing.json();
+    if (!current || !current.sha) return true;
+    const res = await fetch(githubFileUrl(filePath), {
+      method: 'DELETE',
+      headers: Object.assign({ 'Content-Type': 'application/json' }, githubHeaders()),
+      body: JSON.stringify({
+        message: message || ('Delete ' + filePath),
+        sha: current.sha,
+        branch: githubStorageConfig.branch,
+      }),
+    });
+    if (!res.ok && res.status !== 404) {
+      const text = await res.text().catch(() => '');
+      throw new Error('GitHub delete failed for ' + filePath + ' (' + res.status + '): ' + text.slice(0, 200));
+    }
+    return true;
+  });
+}
+
+function githubKeyFilePath(key) {
+  return githubPathForKey(key, 'library.json');
+}
+
+function githubChapterFilePath(key, chapterId) {
+  return githubPathForKey(key, 'chapters/' + (chapterId || '').toString().trim() + '.json');
+}
+
+function githubCoverFilePath(key, bookName) {
+  return githubPathForKey(key, 'covers/' + safeBookSlugForCover(bookName) + '.json');
+}
+
+function stripChaptersForMetadata(value) {
+  const src = (value && typeof value === 'object') ? value : {};
+  const next = Object.assign({}, src);
+  delete next.chapters;
+  return next;
+}
+
+function getLibraryChapterEntries(value) {
+  const chapters = (value && typeof value === 'object' && value.chapters && typeof value.chapters === 'object') ? value.chapters : {};
+  return Object.entries(chapters).filter(([id, chapter]) => !!id && chapter && typeof chapter === 'object');
+}
+
+async function saveLibraryToGithub(key, value) {
+  const metadata = stripChaptersForMetadata(value);
+  const chapterEntries = getLibraryChapterEntries(value);
+  await githubWriteJson(githubKeyFilePath(key), metadata, 'Update library metadata for ' + keyDigest(key));
+  for (const [chapterId, chapterData] of chapterEntries) {
+    await githubWriteJson(githubChapterFilePath(key, chapterId), chapterData, 'Update chapter ' + chapterId + ' for ' + keyDigest(key));
+  }
+  return true;
+}
+
+async function readCoverData(key, bookName) {
+  if (githubStorageConfig) {
+    return githubReadJson(githubCoverFilePath(key, bookName));
+  }
+  const p = coverFilePath(key, bookName);
+  if (!fs.existsSync(p)) return null;
+  try {
+    return JSON.parse(fs.readFileSync(p, 'utf8'));
+  } catch (e) {
+    return null;
+  }
+}
+
+async function writeCoverData(key, bookName, value) {
+  if (githubStorageConfig) {
+    return githubWriteJson(githubCoverFilePath(key, bookName), value, 'Update cover for ' + safeBookSlugForCover(bookName) + ' (' + keyDigest(key) + ')');
+  }
+  const p = coverFilePath(key, bookName);
+  fs.writeFileSync(p, JSON.stringify(value || {}), 'utf8');
+  return true;
+}
+
+async function readChapterDataRemoteAware(key, chapterId) {
+  if (githubStorageConfig) {
+    const remote = await githubReadJson(githubChapterFilePath(key, chapterId));
+    if (remote) return remote;
+  }
+  const p = chapterFilePath(key, chapterId);
+  if (!fs.existsSync(p)) return null;
+  try {
+    return JSON.parse(fs.readFileSync(p, 'utf8'));
+  } catch (e) {
+    return null;
+  }
+}
+
+async function writeChapterDataRemoteAware(key, chapterId, value) {
+  if (githubStorageConfig) {
+    return githubWriteJson(githubChapterFilePath(key, chapterId), value, 'Update chapter ' + chapterId + ' (' + keyDigest(key) + ')');
+  }
+  const p = chapterFilePath(key, chapterId);
+  fs.writeFileSync(p, JSON.stringify(value || {}), 'utf8');
+  return true;
+}
+
+async function deleteChapterDataRemoteAware(key, chapterId) {
+  if (githubStorageConfig) {
+    return githubDeleteJson(githubChapterFilePath(key, chapterId), 'Delete chapter ' + chapterId + ' (' + keyDigest(key) + ')');
+  }
+  const p = chapterFilePath(key, chapterId);
+  try { if (fs.existsSync(p)) fs.unlinkSync(p); } catch (e) {}
+  return true;
+}
+
 function slugifyBookName(name) {
   return (name || '')
     .toString()
@@ -202,25 +422,18 @@ function chapterFilePath(key, chapterId) {
   return path.join(dir, id + '.json');
 }
 
-function readChapterData(key, chapterId) {
-  const p = chapterFilePath(key, chapterId);
-  if (!fs.existsSync(p)) return null;
-  try {
-    return JSON.parse(fs.readFileSync(p, 'utf8'));
-  } catch (e) {
-    return null;
-  }
+async function readChapterData(key, chapterId) {
+  return readChapterDataRemoteAware(key, chapterId);
 }
 
-function writeChapterData(key, chapterId, value) {
-  const p = chapterFilePath(key, chapterId);
-  fs.writeFileSync(p, JSON.stringify(value || {}), 'utf8');
+async function writeChapterData(key, chapterId, value) {
+  return writeChapterDataRemoteAware(key, chapterId, value);
 }
 
-function readChapterWithLegacyFallback(key, chapterId) {
-  const chapter = readChapterData(key, chapterId);
+async function readChapterWithLegacyFallback(key, chapterId) {
+  const chapter = await readChapterData(key, chapterId);
   if (chapter) return chapter;
-  const data = readUnifiedData(key);
+  const data = await readUnifiedData(key);
   return (data && data.chapters && data.chapters[chapterId]) ? data.chapters[chapterId] : null;
 }
 
@@ -242,7 +455,10 @@ function coverPublicPath(key, bookName) {
   return '/api/cover?key=' + encodeURIComponent(key) + '&book=' + encodeURIComponent(bookName) + '&v=' + Date.now();
 }
 
-function readKeyData(key) {
+async function readKeyData(key) {
+  if (githubStorageConfig) {
+    return githubReadJson(githubKeyFilePath(key));
+  }
   const p = keyFilePath(key);
   if (!fs.existsSync(p)) return null;
   try {
@@ -253,12 +469,16 @@ function readKeyData(key) {
   }
 }
 
-function writeKeyData(key, value) {
+async function writeKeyData(key, value) {
+  if (githubStorageConfig) {
+    return saveLibraryToGithub(key, value);
+  }
   const p = keyFilePath(key);
   fs.writeFileSync(p, JSON.stringify(value || {}), 'utf8');
+  return true;
 }
 
-function readLegacyValue(key) {
+async function readLegacyValue(key) {
   if (!fs.existsSync(legacyDataFile)) return null;
   try {
     const stat = fs.statSync(legacyDataFile);
@@ -280,8 +500,8 @@ function normalizeProfileId(value) {
   return id || 'izaiah';
 }
 
-function readUnifiedData(key) {
-  return readKeyData(key) || readLegacyValue(key) || {};
+async function readUnifiedData(key) {
+  return (await readKeyData(key)) || (await readLegacyValue(key)) || {};
 }
 
 function getProfileState(data, profileId) {
@@ -314,17 +534,17 @@ function mergeProfileState(data, profileId, incoming) {
   });
 }
 
-app.get('/api/library', (req, res) => {
+app.get('/api/library', async (req, res) => {
   const key = (req.query.key || '').trim();
   const bookSlug = (req.query.book || '').trim().toLowerCase();
   const metaOnly = (req.query.meta || '').trim() === '1';
   if (!key) return res.status(400).json({ error: 'Missing sync key' });
 
-  let data = readKeyData(key);
+  let data = await readKeyData(key);
   if (!data) {
-    const legacy = readLegacyValue(key);
+    const legacy = await readLegacyValue(key);
     if (legacy) {
-      writeKeyData(key, legacy);
+      await writeKeyData(key, legacy);
       data = legacy;
     }
   }
@@ -340,14 +560,13 @@ app.get('/api/library', (req, res) => {
   res.json({ data: data || null });
 });
 
-app.get('/api/cover', (req, res) => {
+app.get('/api/cover', async (req, res) => {
   const key = (req.query.key || '').toString().trim();
   const book = (req.query.book || '').toString().trim();
   if (!key || !book) return res.status(400).json({ error: 'Missing key or book' });
-  const p = coverFilePath(key, book);
-  if (!fs.existsSync(p)) return res.status(404).json({ error: 'Cover not found' });
+  const payload = await readCoverData(key, book);
+  if (!payload) return res.status(404).json({ error: 'Cover not found' });
   try {
-    const payload = JSON.parse(fs.readFileSync(p, 'utf8'));
     const mime = (payload && payload.mime) || 'image/jpeg';
     const base64 = (payload && payload.base64) || '';
     const buffer = Buffer.from(base64, 'base64');
@@ -359,7 +578,7 @@ app.get('/api/cover', (req, res) => {
   }
 });
 
-app.post('/api/cover', (req, res) => {
+app.post('/api/cover', async (req, res) => {
   const key = (req.headers['x-sync-key'] || '').toString().trim();
   const book = (req.body && req.body.book ? req.body.book : '').toString().trim();
   const dataUrl = (req.body && req.body.dataUrl ? req.body.dataUrl : '').toString();
@@ -369,60 +588,59 @@ app.post('/api/cover', (req, res) => {
   if (!parsed) return res.status(400).json({ error: 'Invalid image payload' });
   if (parsed.bytes > 2 * 1024 * 1024) return res.status(413).json({ error: 'Cover exceeds 2MB limit' });
   try {
-    const p = coverFilePath(key, book);
-    fs.writeFileSync(p, JSON.stringify({ mime: parsed.mime, base64: parsed.base64 }), 'utf8');
+    await writeCoverData(key, book, { mime: parsed.mime, base64: parsed.base64 });
     return res.json({ ok: true, coverPath: coverPublicPath(key, book) });
   } catch (e) {
     return res.status(500).json({ error: 'Failed to save cover' });
   }
 });
 
-app.get('/api/chapter', (req, res) => {
+app.get('/api/chapter', async (req, res) => {
   const key = (req.query.key || '').toString().trim();
   const chapterId = (req.query.id || '').toString().trim();
   if (!key || !chapterId) return res.status(400).json({ error: 'Missing key or chapter id' });
-  const data = readChapterWithLegacyFallback(key, chapterId);
+  const data = await readChapterWithLegacyFallback(key, chapterId);
   if (!data) return res.status(404).json({ error: 'Chapter not found' });
   return res.json({ data });
 });
 
-app.post('/api/chapter', (req, res) => {
+app.post('/api/chapter', async (req, res) => {
   const key = (req.headers['x-sync-key'] || '').toString().trim();
   const chapterId = (req.body && req.body.id ? req.body.id : '').toString().trim();
   const chapter = req.body && req.body.data;
   if (!key) return res.status(400).json({ error: 'Missing sync key' });
   if (!chapterId) return res.status(400).json({ error: 'Missing chapter id' });
   if (!chapter || typeof chapter !== 'object') return res.status(400).json({ error: 'Missing chapter data' });
-  writeChapterData(key, chapterId, chapter);
+  await writeChapterData(key, chapterId, chapter);
   return res.json({ ok: true, id: chapterId });
 });
 
-app.get('/api/state', (req, res) => {
+app.get('/api/state', async (req, res) => {
   const key = (req.query.key || '').toString().trim();
   const profileId = normalizeProfileId(req.query.profile || 'izaiah');
   if (!key) return res.status(400).json({ error: 'Missing sync key' });
-  const data = readUnifiedData(key);
+  const data = await readUnifiedData(key);
   return res.json({ data: getProfileState(data, profileId) });
 });
 
-app.post('/api/state', (req, res) => {
+app.post('/api/state', async (req, res) => {
   const key = (req.headers['x-sync-key'] || '').toString().trim();
   const profileId = normalizeProfileId(req.headers['x-profile-id'] || 'izaiah');
   if (!key) return res.status(400).json({ error: 'Missing sync key' });
-  const data = readUnifiedData(key);
+  const data = await readUnifiedData(key);
   const next = mergeProfileState(data, profileId, req.body || {});
-  writeKeyData(key, next);
+  await writeKeyData(key, next);
   return res.json({ ok: true, profileId });
 });
 
-app.post('/api/library', (req, res) => {
+app.post('/api/library', async (req, res) => {
   const key = (req.headers['x-sync-key'] || '').toString().trim();
   const bookSlug = (req.headers['x-book-slug'] || '').toString().trim().toLowerCase();
   const replaceMode = (req.headers['x-sync-replace'] || '').toString().trim() === '1';
   const partialMode = (req.headers['x-sync-partial'] || '').toString().trim();
   if (!key) return res.status(400).json({ error: 'Missing sync key' });
   if (partialMode === 'progress') {
-    const existing = readKeyData(key) || readLegacyValue(key) || {};
+    const existing = (await readKeyData(key)) || (await readLegacyValue(key)) || {};
     const incoming = req.body || {};
     const next = Object.assign({}, existing, {
       version: incoming.version || existing.version || 1,
@@ -430,18 +648,39 @@ app.post('/api/library', (req, res) => {
       progress: incoming.progress || existing.progress || { lastChapterId: null, percents: {} },
       settings: incoming.settings ? Object.assign({}, existing.settings || {}, incoming.settings) : (existing.settings || {}),
     });
-    writeKeyData(key, next);
+    await writeKeyData(key, next);
     return res.json({ ok: true, partialMode: 'progress' });
   }
   if (bookSlug) {
-    const existing = readKeyData(key) || readLegacyValue(key) || {};
+    const existing = (await readKeyData(key)) || (await readLegacyValue(key)) || {};
+    const removedIds = replaceMode
+      ? (Array.isArray(existing.index) ? existing.index : [])
+        .filter((entry) => matchesBookSlug(entry && entry.book, bookSlug))
+        .map((entry) => entry && entry.id)
+        .filter(Boolean)
+      : [];
     const merged = mergeBookSlice(existing, req.body || {}, bookSlug, replaceMode);
-    writeKeyData(key, merged);
+    await writeKeyData(key, merged);
+    for (const chapterId of removedIds) {
+      if (!merged.index.some((entry) => entry && entry.id === chapterId)) {
+        await deleteChapterData(key, chapterId);
+      }
+    }
     return res.json({ ok: true, scoped: true, replaceMode });
   }
-  const existing = readKeyData(key) || readLegacyValue(key) || {};
+  const existing = (await readKeyData(key)) || (await readLegacyValue(key)) || {};
+  const removedIds = replaceMode
+    ? (Array.isArray(existing.index) ? existing.index : [])
+      .map((entry) => entry && entry.id)
+      .filter(Boolean)
+    : [];
   const merged = mergeRootLibrary(existing, req.body || {}, replaceMode);
-  writeKeyData(key, merged);
+  await writeKeyData(key, merged);
+  for (const chapterId of removedIds) {
+    if (!merged.index.some((entry) => entry && entry.id === chapterId)) {
+      await deleteChapterData(key, chapterId);
+    }
+  }
   res.json({ ok: true });
 });
 
