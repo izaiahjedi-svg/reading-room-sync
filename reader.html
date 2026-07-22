@@ -2070,11 +2070,21 @@
       // Root pulls are non-destructive: merge remote into local so transient
       // server or scope issues never wipe local chapters.
       const remoteIndex = Array.isArray(remote.index) ? remote.index : [];
+      const remoteIds = new Set(remoteIndex.map((entry) => entry && entry.id).filter(Boolean));
       const byId = new Map();
       const merged = [];
+      let prunedLocalOnlyMissing = 0;
       for (const entry of localIndex) {
         const id = entry && entry.id;
         if (id && !byId.has(id)) {
+          if (!remoteIds.has(id)) {
+            const localChapter = await storageGet('chapter:' + id);
+            const hasLocalBody = !!(localChapter && typeof localChapter.content === 'string' && localChapter.content.length);
+            if (!hasLocalBody) {
+              prunedLocalOnlyMissing++;
+              continue;
+            }
+          }
           byId.set(id, merged.length);
           merged.push(entry);
         } else if (!id) {
@@ -2091,6 +2101,9 @@
         }
       }
       index = merged;
+      if (prunedLocalOnlyMissing > 0) {
+        addSyncEvent('pull-prune', 'Pruned ' + prunedLocalOnlyMissing + ' stale local chapter reference(s) with missing content');
+      }
       booksMeta = (remote.booksMeta && typeof remote.booksMeta === 'object')
         ? Object.assign({}, booksMeta || {}, remote.booksMeta)
         : (booksMeta || {});
