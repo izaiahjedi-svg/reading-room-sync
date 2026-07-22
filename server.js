@@ -44,11 +44,24 @@ const githubStorageConfig = getGitHubStorageConfig();
 const githubWriteQueues = new Map();
 const githubReadCache = new Map();
 let githubRateLimitBlockedUntil = 0;
+let lastRateLimitLogAt = 0;
+
+function isGitHubWriteBlocked() {
+  return Date.now() < githubRateLimitBlockedUntil;
+}
 
 function safeAsync(handler) {
   return (req, res) => {
     Promise.resolve(handler(req, res)).catch((err) => {
-      console.error('Request failed:', err && err.stack ? err.stack : err);
+      if (err && err.code === 'GITHUB_RATE_LIMIT') {
+        const now = Date.now();
+        if (now - lastRateLimitLogAt > 30000) {
+          lastRateLimitLogAt = now;
+          console.warn('GitHub sync temporarily rate-limited; serving 429 until cooldown expires.');
+        }
+      } else {
+        console.error('Request failed:', err && err.stack ? err.stack : err);
+      }
       if (!res.headersSent) {
         if (err && err.code === 'GITHUB_RATE_LIMIT') {
           const retryAfterSec = Math.max(1, Math.ceil(((err.retryAfterMs || 0) / 1000)));
@@ -793,10 +806,20 @@ app.post('/api/cover', safeAsync(async (req, res) => {
   const parsed = parseDataUrlImage(dataUrl);
   if (!parsed) return res.status(400).json({ error: 'Invalid image payload' });
   if (parsed.bytes > 2 * 1024 * 1024) return res.status(413).json({ error: 'Cover exceeds 2MB limit' });
+  if (isGitHubWriteBlocked()) {
+    const retryAfterSec = Math.max(1, Math.ceil((githubRateLimitBlockedUntil - Date.now()) / 1000));
+    res.setHeader('Retry-After', String(retryAfterSec));
+    return res.status(429).json({ error: 'Sync backend rate limited, retry shortly' });
+  }
   try {
     await writeCoverData(key, book, { mime: parsed.mime, base64: parsed.base64 });
     return res.json({ ok: true, coverPath: coverPublicPath(key, book) });
   } catch (e) {
+    if (e && e.code === 'GITHUB_RATE_LIMIT') {
+      const retryAfterSec = Math.max(1, Math.ceil(((e.retryAfterMs || 0) / 1000)));
+      res.setHeader('Retry-After', String(retryAfterSec));
+      return res.status(429).json({ error: 'Sync backend rate limited, retry shortly' });
+    }
     return res.status(500).json({ error: 'Failed to save cover' });
   }
 }));
@@ -817,7 +840,21 @@ app.post('/api/chapter', safeAsync(async (req, res) => {
   if (!key) return res.status(400).json({ error: 'Missing sync key' });
   if (!chapterId) return res.status(400).json({ error: 'Missing chapter id' });
   if (!chapter || typeof chapter !== 'object') return res.status(400).json({ error: 'Missing chapter data' });
-  await writeChapterData(key, chapterId, chapter);
+  if (isGitHubWriteBlocked()) {
+    const retryAfterSec = Math.max(1, Math.ceil((githubRateLimitBlockedUntil - Date.now()) / 1000));
+    res.setHeader('Retry-After', String(retryAfterSec));
+    return res.status(429).json({ error: 'Sync backend rate limited, retry shortly' });
+  }
+  try {
+    await writeChapterData(key, chapterId, chapter);
+  } catch (e) {
+    if (e && e.code === 'GITHUB_RATE_LIMIT') {
+      const retryAfterSec = Math.max(1, Math.ceil(((e.retryAfterMs || 0) / 1000)));
+      res.setHeader('Retry-After', String(retryAfterSec));
+      return res.status(429).json({ error: 'Sync backend rate limited, retry shortly' });
+    }
+    throw e;
+  }
   return res.json({ ok: true, id: chapterId });
 }));
 
@@ -833,9 +870,23 @@ app.post('/api/state', safeAsync(async (req, res) => {
   const key = (req.headers['x-sync-key'] || '').toString().trim();
   const profileId = normalizeProfileId(req.headers['x-profile-id'] || 'izaiah');
   if (!key) return res.status(400).json({ error: 'Missing sync key' });
+  if (isGitHubWriteBlocked()) {
+    const retryAfterSec = Math.max(1, Math.ceil((githubRateLimitBlockedUntil - Date.now()) / 1000));
+    res.setHeader('Retry-After', String(retryAfterSec));
+    return res.status(429).json({ error: 'Sync backend rate limited, retry shortly' });
+  }
   const data = await readStateData(key);
   const next = mergeProfileState(data, profileId, req.body || {});
-  await writeStateData(key, next);
+  try {
+    await writeStateData(key, next);
+  } catch (e) {
+    if (e && e.code === 'GITHUB_RATE_LIMIT') {
+      const retryAfterSec = Math.max(1, Math.ceil(((e.retryAfterMs || 0) / 1000)));
+      res.setHeader('Retry-After', String(retryAfterSec));
+      return res.status(429).json({ error: 'Sync backend rate limited, retry shortly' });
+    }
+    throw e;
+  }
   return res.json({ ok: true, profileId });
 }));
 
@@ -845,6 +896,11 @@ app.post('/api/library', safeAsync(async (req, res) => {
   const replaceMode = (req.headers['x-sync-replace'] || '').toString().trim() === '1';
   const partialMode = (req.headers['x-sync-partial'] || '').toString().trim();
   if (!key) return res.status(400).json({ error: 'Missing sync key' });
+  if (isGitHubWriteBlocked()) {
+    const retryAfterSec = Math.max(1, Math.ceil((githubRateLimitBlockedUntil - Date.now()) / 1000));
+    res.setHeader('Retry-After', String(retryAfterSec));
+    return res.status(429).json({ error: 'Sync backend rate limited, retry shortly' });
+  }
   if (partialMode === 'progress') {
     const existing = (await readKeyData(key)) || (await readLegacyValue(key)) || {};
     const incoming = req.body || {};
@@ -854,7 +910,16 @@ app.post('/api/library', safeAsync(async (req, res) => {
       progress: incoming.progress || existing.progress || { lastChapterId: null, percents: {} },
       settings: incoming.settings ? Object.assign({}, existing.settings || {}, incoming.settings) : (existing.settings || {}),
     });
-    await writeKeyData(key, next);
+    try {
+      await writeKeyData(key, next);
+    } catch (e) {
+      if (e && e.code === 'GITHUB_RATE_LIMIT') {
+        const retryAfterSec = Math.max(1, Math.ceil(((e.retryAfterMs || 0) / 1000)));
+        res.setHeader('Retry-After', String(retryAfterSec));
+        return res.status(429).json({ error: 'Sync backend rate limited, retry shortly' });
+      }
+      throw e;
+    }
     return res.json({ ok: true, partialMode: 'progress' });
   }
   if (bookSlug) {
