@@ -7,12 +7,14 @@ const app = express();
 const port = process.env.PORT || 3000;
 const dataDir = path.join(__dirname, '.data');
 const keyDir = path.join(dataDir, 'keys');
+const stateDir = path.join(dataDir, 'state');
 const coverDir = path.join(dataDir, 'covers');
 const chapterDir = path.join(dataDir, 'chapters');
 const legacyDataFile = path.join(dataDir, 'library.json');
 
 if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
 if (!fs.existsSync(keyDir)) fs.mkdirSync(keyDir, { recursive: true });
+if (!fs.existsSync(stateDir)) fs.mkdirSync(stateDir, { recursive: true });
 if (!fs.existsSync(coverDir)) fs.mkdirSync(coverDir, { recursive: true });
 if (!fs.existsSync(chapterDir)) fs.mkdirSync(chapterDir, { recursive: true });
 
@@ -155,6 +157,10 @@ function githubKeyFilePath(key) {
   return githubPathForKey(key, 'library.json');
 }
 
+function githubStateFilePath(key) {
+  return githubPathForKey(key, 'state.json');
+}
+
 function githubChapterFilePath(key, chapterId) {
   return githubPathForKey(key, 'chapters/' + (chapterId || '').toString().trim() + '.json');
 }
@@ -182,6 +188,41 @@ async function saveLibraryToGithub(key, value) {
   for (const [chapterId, chapterData] of chapterEntries) {
     await githubWriteJson(githubChapterFilePath(key, chapterId), chapterData, 'Update chapter ' + chapterId + ' for ' + keyDigest(key));
   }
+  return true;
+}
+
+async function readStateData(key) {
+  if (githubStorageConfig) {
+    const remote = await githubReadJson(githubStateFilePath(key));
+    if (remote) return remote;
+    const legacyRemote = await githubReadJson(githubKeyFilePath(key));
+    if (legacyRemote && legacyRemote.stateProfiles && typeof legacyRemote.stateProfiles === 'object') {
+      return { version: legacyRemote.version || 1, exportedAt: legacyRemote.exportedAt || Date.now(), stateProfiles: legacyRemote.stateProfiles };
+    }
+    return null;
+  }
+  const p = stateFilePath(key);
+  if (!fs.existsSync(p)) {
+    const legacy = await readKeyData(key);
+    if (legacy && legacy.stateProfiles && typeof legacy.stateProfiles === 'object') {
+      return { version: legacy.version || 1, exportedAt: legacy.exportedAt || Date.now(), stateProfiles: legacy.stateProfiles };
+    }
+    return null;
+  }
+  try {
+    return JSON.parse(fs.readFileSync(p, 'utf8'));
+  } catch (e) {
+    console.warn('Failed to parse state store', e.message);
+    return null;
+  }
+}
+
+async function writeStateData(key, value) {
+  if (githubStorageConfig) {
+    return githubWriteJson(githubStateFilePath(key), value, 'Update profile state for ' + keyDigest(key));
+  }
+  const p = stateFilePath(key);
+  fs.writeFileSync(p, JSON.stringify(value || {}), 'utf8');
   return true;
 }
 
@@ -396,6 +437,11 @@ function mergeRootLibrary(existing, incoming, replaceMode) {
 function keyFilePath(key) {
   const digest = crypto.createHash('sha256').update(key).digest('hex');
   return path.join(keyDir, digest + '.json');
+}
+
+function stateFilePath(key) {
+  const digest = crypto.createHash('sha256').update(key).digest('hex');
+  return path.join(stateDir, digest + '.json');
 }
 
 function keyDigest(key) {
@@ -619,7 +665,7 @@ app.get('/api/state', async (req, res) => {
   const key = (req.query.key || '').toString().trim();
   const profileId = normalizeProfileId(req.query.profile || 'izaiah');
   if (!key) return res.status(400).json({ error: 'Missing sync key' });
-  const data = await readUnifiedData(key);
+  const data = await readStateData(key);
   return res.json({ data: getProfileState(data, profileId) });
 });
 
@@ -627,9 +673,9 @@ app.post('/api/state', async (req, res) => {
   const key = (req.headers['x-sync-key'] || '').toString().trim();
   const profileId = normalizeProfileId(req.headers['x-profile-id'] || 'izaiah');
   if (!key) return res.status(400).json({ error: 'Missing sync key' });
-  const data = await readUnifiedData(key);
+  const data = await readStateData(key);
   const next = mergeProfileState(data, profileId, req.body || {});
-  await writeKeyData(key, next);
+  await writeStateData(key, next);
   return res.json({ ok: true, profileId });
 });
 
