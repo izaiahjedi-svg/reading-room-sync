@@ -1033,10 +1033,13 @@
   const coverInput = document.getElementById('coverInput');
   let syncKey = '';
   const SYNC_KEY_STORAGE_KEY = 'reading-room:sync-key';
+  const ACTIVE_PROFILE_STORAGE_KEY = 'reading-room:active-profile-id';
   const SYNC_ENDPOINT = '/api/library';
   const STATE_ENDPOINT = '/api/state';
   const COVER_ENDPOINT = '/api/cover';
   const CHAPTER_ENDPOINT = '/api/chapter';
+  let profileStateRefreshTimer = null;
+  let profileStateRefreshInFlight = false;
 
   function getRouteBookSlug(){
     const parts = window.location.pathname.split('/').filter(Boolean);
@@ -1252,6 +1255,7 @@
   async function switchProfile(profileId){
     if (!profiles[profileId]) return;
     activeProfileId = profileId;
+    storeActiveProfileId(activeProfileId);
     if (!profileState[profileId]) {
       profileState[profileId] = {
         progress: { lastChapterId:null, percents:{} },
@@ -1277,6 +1281,35 @@
     catch (e) { return ''; }
   }
 
+  function getStoredActiveProfileId(){
+    try { return (window.localStorage.getItem(ACTIVE_PROFILE_STORAGE_KEY) || '').trim().toLowerCase(); }
+    catch (e) { return ''; }
+  }
+
+  function storeActiveProfileId(profileId){
+    try {
+      if (profileId) window.localStorage.setItem(ACTIVE_PROFILE_STORAGE_KEY, profileId);
+      else window.localStorage.removeItem(ACTIVE_PROFILE_STORAGE_KEY);
+    } catch (e) {}
+  }
+
+  function stopProfileStateAutoRefresh(){
+    if (profileStateRefreshTimer) {
+      clearInterval(profileStateRefreshTimer);
+      profileStateRefreshTimer = null;
+    }
+  }
+
+  function startProfileStateAutoRefresh(){
+    stopProfileStateAutoRefresh();
+    if (!syncKey) return;
+    profileStateRefreshTimer = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        refreshActiveProfileStateFromRemote('timer').catch(() => {});
+      }
+    }, 25000);
+  }
+
   function setSyncKey(key){
     syncKey = (key || '').trim();
     remoteSyncPrimed = !syncKey;
@@ -1284,6 +1317,8 @@
       if (syncKey) window.localStorage.setItem(SYNC_KEY_STORAGE_KEY, syncKey);
       else window.localStorage.removeItem(SYNC_KEY_STORAGE_KEY);
     } catch (e) {}
+    if (syncKey) startProfileStateAutoRefresh();
+    else stopProfileStateAutoRefresh();
     return syncKey;
   }
 
@@ -1446,6 +1481,27 @@
     if (m.coverPath) return m.coverPath;
     if (m.coverDataUrl) return m.coverDataUrl;
     return '';
+  }
+
+  async function backfillCoverPathsToRemote(){
+    if (!syncKey) return false;
+    const source = (booksMeta && typeof booksMeta === 'object') ? booksMeta : {};
+    let changed = false;
+    for (const bookName of Object.keys(source)) {
+      const meta = source[bookName] && typeof source[bookName] === 'object' ? source[bookName] : null;
+      if (!meta || meta.coverPath || !meta.coverDataUrl) continue;
+      const uploaded = await uploadCoverToServer(bookName, meta.coverDataUrl);
+      if (uploaded.ok && uploaded.coverPath) {
+        meta.coverPath = uploaded.coverPath;
+        meta.coverDataUrl = '';
+        changed = true;
+      }
+    }
+    if (changed) {
+      await persistBooksMeta();
+      addSyncEvent('cover-backfill', 'Uploaded local-only covers for cross-device access');
+    }
+    return changed;
   }
 
   async function uploadCoverToServer(bookName, dataUrl){
@@ -1835,6 +1891,24 @@
     return true;
   }
 
+  async function refreshActiveProfileStateFromRemote(reason){
+    if (!syncKey || profileStateRefreshInFlight) return false;
+    profileStateRefreshInFlight = true;
+    try {
+      const before = JSON.stringify(normalizeProgressState(getProgress()));
+      const ok = await syncStateFromRemote(activeProfileId);
+      if (!ok) return false;
+      const after = JSON.stringify(normalizeProgressState(getProgress()));
+      if (before !== after) {
+        addSyncEvent('state-refresh', 'Profile ' + activeProfileId + ': refreshed progress from remote (' + (reason || 'sync') + ')');
+        render();
+      }
+      return true;
+    } finally {
+      profileStateRefreshInFlight = false;
+    }
+  }
+
   async function loadRemoteLibrary(options){
     if (!syncKey) return null;
     const url = new URL(SYNC_ENDPOINT, window.location.origin);
@@ -1911,6 +1985,9 @@
     let overallOk = true;
     let recoveryAttempted = false;
     try {
+      if (!progressOnly) {
+        await backfillCoverPathsToRemote();
+      }
       do {
         syncPending = false;
         const replaceThisCycle = !!syncPendingReplace;
@@ -2185,7 +2262,9 @@
         };
       }
     });
-    activeProfileId = 'izaiah';
+    const storedProfileId = getStoredActiveProfileId();
+    activeProfileId = profiles[storedProfileId] ? storedProfileId : 'izaiah';
+    storeActiveProfileId(activeProfileId);
     if (routeBookSlug) view.booksCollapsed = true;
     setSyncKey(getSyncKeyFromUrl() || getStoredSyncKey());
     applyTheme();
@@ -2206,6 +2285,15 @@
         console.warn('Initial remote state sync failed', e);
       });
     }
+
+    window.addEventListener('focus', () => {
+      if (syncKey) refreshActiveProfileStateFromRemote('focus').catch(() => {});
+    });
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && syncKey) {
+        refreshActiveProfileStateFromRemote('visible').catch(() => {});
+      }
+    });
 
     if (!routeBookSlug) {
       setTimeout(() => {
@@ -2337,6 +2425,10 @@
     view.sidebarOpen = false;
     renderTopbar();
     render();
+    window.scrollTo(0, 0);
+    if (syncKey) {
+      refreshActiveProfileStateFromRemote('return').catch(() => {});
+    }
   }
 
   async function handleUpload(fileList, inputEl){
@@ -3655,7 +3747,7 @@
     const centerBtn = document.createElement('button');
     centerBtn.className = 'center-btn subtle';
     centerBtn.textContent = 'Library';
-    centerBtn.onclick = () => { view.mode='library'; render(); };
+    centerBtn.onclick = returnToLibrary;
     const nextBtn = document.createElement('button');
     nextBtn.textContent = 'Next →';
     nextBtn.className = 'primary';
