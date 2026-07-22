@@ -81,6 +81,51 @@ function githubHeaders() {
   };
 }
 
+function isRetryableGithubStatus(status) {
+  return status === 403 || status === 408 || status === 429 || status === 500 || status === 502 || status === 503 || status === 504;
+}
+
+function retryDelayMsFromHeaders(res, attempt) {
+  const retryAfter = (res && res.headers && res.headers.get('retry-after')) || '';
+  const retryAfterSec = Number.parseInt(retryAfter, 10);
+  if (Number.isFinite(retryAfterSec) && retryAfterSec > 0) {
+    return Math.min(15000, retryAfterSec * 1000);
+  }
+
+  const rateRemaining = (res && res.headers && res.headers.get('x-ratelimit-remaining')) || '';
+  const rateReset = (res && res.headers && res.headers.get('x-ratelimit-reset')) || '';
+  const remaining = Number.parseInt(rateRemaining, 10);
+  const resetEpochSec = Number.parseInt(rateReset, 10);
+  if (Number.isFinite(remaining) && remaining <= 0 && Number.isFinite(resetEpochSec)) {
+    const msUntilReset = (resetEpochSec * 1000) - Date.now();
+    if (msUntilReset > 0) return Math.min(15000, msUntilReset + 200);
+  }
+
+  return Math.min(5000, 250 * attempt);
+}
+
+async function githubFetchWithRetry(url, options, settings) {
+  const maxAttempts = (settings && settings.maxAttempts) || 4;
+  const allow404 = !!(settings && settings.allow404);
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const res = await fetch(url, options);
+      if (res.ok) return res;
+      if (allow404 && res.status === 404) return res;
+      if (isRetryableGithubStatus(res.status) && attempt < maxAttempts) {
+        const delayMs = retryDelayMsFromHeaders(res, attempt);
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+        continue;
+      }
+      return res;
+    } catch (e) {
+      if (attempt >= maxAttempts) throw e;
+      await new Promise((resolve) => setTimeout(resolve, 250 * attempt));
+    }
+  }
+  return null;
+}
+
 function enqueueGitHubWrite(queueKey, task) {
   const existing = githubWriteQueues.get(queueKey) || Promise.resolve();
   const next = existing.catch(() => {}).then(task);
@@ -94,9 +139,10 @@ function enqueueGitHubWrite(queueKey, task) {
 async function githubReadJson(filePath) {
   if (!githubStorageConfig) return null;
   try {
-    const res = await fetch(githubFileUrl(filePath) + '?ref=' + encodeURIComponent(githubStorageConfig.branch), {
+    const res = await githubFetchWithRetry(githubFileUrl(filePath) + '?ref=' + encodeURIComponent(githubStorageConfig.branch), {
       headers: githubHeaders(),
-    });
+    }, { maxAttempts: 4, allow404: true });
+    if (!res) return null;
     if (res.status === 404) return null;
     if (!res.ok) return null;
     const payload = await res.json();
@@ -116,18 +162,18 @@ async function githubWriteJson(filePath, value, message) {
   return enqueueGitHubWrite(filePath, async () => {
     const maxAttempts = 4;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      const existing = await fetch(githubFileUrl(filePath) + '?ref=' + encodeURIComponent(githubStorageConfig.branch), {
+      const existing = await githubFetchWithRetry(githubFileUrl(filePath) + '?ref=' + encodeURIComponent(githubStorageConfig.branch), {
         headers: githubHeaders(),
-      });
+      }, { maxAttempts: 3, allow404: true });
       let sha = null;
-      if (existing.ok) {
+      if (existing && existing.ok) {
         try {
           const current = await existing.json();
           sha = current && current.sha ? current.sha : null;
         } catch (e) {}
       }
 
-      const res = await fetch(githubFileUrl(filePath), {
+      const res = await githubFetchWithRetry(githubFileUrl(filePath), {
         method: 'PUT',
         headers: Object.assign({ 'Content-Type': 'application/json' }, githubHeaders()),
         body: JSON.stringify({
@@ -136,7 +182,11 @@ async function githubWriteJson(filePath, value, message) {
           branch: githubStorageConfig.branch,
           ...(sha ? { sha } : {}),
         }),
-      });
+      }, { maxAttempts: 3, allow404: false });
+
+      if (!res) {
+        throw new Error('GitHub write failed for ' + filePath + ': no response');
+      }
 
       if (res.ok) {
         return true;
@@ -157,13 +207,13 @@ async function githubWriteJson(filePath, value, message) {
 async function githubDeleteJson(filePath, message) {
   if (!githubStorageConfig) return false;
   return enqueueGitHubWrite(filePath, async () => {
-    const existing = await fetch(githubFileUrl(filePath) + '?ref=' + encodeURIComponent(githubStorageConfig.branch), {
+    const existing = await githubFetchWithRetry(githubFileUrl(filePath) + '?ref=' + encodeURIComponent(githubStorageConfig.branch), {
       headers: githubHeaders(),
-    });
-    if (!existing.ok) return true;
+    }, { maxAttempts: 4, allow404: true });
+    if (!existing || !existing.ok) return true;
     const current = await existing.json();
     if (!current || !current.sha) return true;
-    const res = await fetch(githubFileUrl(filePath), {
+    const res = await githubFetchWithRetry(githubFileUrl(filePath), {
       method: 'DELETE',
       headers: Object.assign({ 'Content-Type': 'application/json' }, githubHeaders()),
       body: JSON.stringify({
@@ -171,7 +221,10 @@ async function githubDeleteJson(filePath, message) {
         sha: current.sha,
         branch: githubStorageConfig.branch,
       }),
-    });
+    }, { maxAttempts: 3, allow404: true });
+    if (!res) {
+      throw new Error('GitHub delete failed for ' + filePath + ': no response');
+    }
     if (!res.ok && res.status !== 404) {
       const text = await res.text().catch(() => '');
       throw new Error('GitHub delete failed for ' + filePath + ' (' + res.status + '): ' + text.slice(0, 200));
