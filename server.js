@@ -43,8 +43,22 @@ function getGitHubStorageConfig() {
 const githubStorageConfig = getGitHubStorageConfig();
 const githubWriteQueues = new Map();
 
+function safeAsync(handler) {
+  return (req, res) => {
+    Promise.resolve(handler(req, res)).catch((err) => {
+      console.error('Request failed:', err && err.stack ? err.stack : err);
+      if (!res.headersSent) {
+        res.status(502).json({ error: 'Sync backend unavailable' });
+      }
+    });
+  };
+}
+
 if (githubStorageConfig) {
   console.log('GitHub-backed sync storage enabled for ' + githubStorageConfig.owner + '/' + githubStorageConfig.repo + ' @ ' + githubStorageConfig.branch);
+  if (githubStorageConfig.owner === 'owner' && githubStorageConfig.repo === 'repo') {
+    console.warn('GITHUB_REPOSITORY is set to placeholder value owner/repo; update Render env vars to your real repository.');
+  }
 }
 
 function githubRootPathForKey(key) {
@@ -581,7 +595,7 @@ function mergeProfileState(data, profileId, incoming) {
   });
 }
 
-app.get('/api/library', async (req, res) => {
+app.get('/api/library', safeAsync(async (req, res) => {
   const key = (req.query.key || '').trim();
   const bookSlug = (req.query.book || '').trim().toLowerCase();
   const metaOnly = (req.query.meta || '').trim() === '1';
@@ -605,9 +619,9 @@ app.get('/api/library', async (req, res) => {
     return res.json({ data: meta });
   }
   res.json({ data: data || null });
-});
+}));
 
-app.get('/api/cover', async (req, res) => {
+app.get('/api/cover', safeAsync(async (req, res) => {
   const key = (req.query.key || '').toString().trim();
   const book = (req.query.book || '').toString().trim();
   if (!key || !book) return res.status(400).json({ error: 'Missing key or book' });
@@ -623,9 +637,9 @@ app.get('/api/cover', async (req, res) => {
   } catch (e) {
     return res.status(500).json({ error: 'Failed to load cover' });
   }
-});
+}));
 
-app.post('/api/cover', async (req, res) => {
+app.post('/api/cover', safeAsync(async (req, res) => {
   const key = (req.headers['x-sync-key'] || '').toString().trim();
   const book = (req.body && req.body.book ? req.body.book : '').toString().trim();
   const dataUrl = (req.body && req.body.dataUrl ? req.body.dataUrl : '').toString();
@@ -640,18 +654,18 @@ app.post('/api/cover', async (req, res) => {
   } catch (e) {
     return res.status(500).json({ error: 'Failed to save cover' });
   }
-});
+}));
 
-app.get('/api/chapter', async (req, res) => {
+app.get('/api/chapter', safeAsync(async (req, res) => {
   const key = (req.query.key || '').toString().trim();
   const chapterId = (req.query.id || '').toString().trim();
   if (!key || !chapterId) return res.status(400).json({ error: 'Missing key or chapter id' });
   const data = await readChapterWithLegacyFallback(key, chapterId);
   if (!data) return res.status(404).json({ error: 'Chapter not found' });
   return res.json({ data });
-});
+}));
 
-app.post('/api/chapter', async (req, res) => {
+app.post('/api/chapter', safeAsync(async (req, res) => {
   const key = (req.headers['x-sync-key'] || '').toString().trim();
   const chapterId = (req.body && req.body.id ? req.body.id : '').toString().trim();
   const chapter = req.body && req.body.data;
@@ -660,17 +674,17 @@ app.post('/api/chapter', async (req, res) => {
   if (!chapter || typeof chapter !== 'object') return res.status(400).json({ error: 'Missing chapter data' });
   await writeChapterData(key, chapterId, chapter);
   return res.json({ ok: true, id: chapterId });
-});
+}));
 
-app.get('/api/state', async (req, res) => {
+app.get('/api/state', safeAsync(async (req, res) => {
   const key = (req.query.key || '').toString().trim();
   const profileId = normalizeProfileId(req.query.profile || 'izaiah');
   if (!key) return res.status(400).json({ error: 'Missing sync key' });
   const data = await readStateData(key);
   return res.json({ data: getProfileState(data, profileId) });
-});
+}));
 
-app.post('/api/state', async (req, res) => {
+app.post('/api/state', safeAsync(async (req, res) => {
   const key = (req.headers['x-sync-key'] || '').toString().trim();
   const profileId = normalizeProfileId(req.headers['x-profile-id'] || 'izaiah');
   if (!key) return res.status(400).json({ error: 'Missing sync key' });
@@ -678,9 +692,9 @@ app.post('/api/state', async (req, res) => {
   const next = mergeProfileState(data, profileId, req.body || {});
   await writeStateData(key, next);
   return res.json({ ok: true, profileId });
-});
+}));
 
-app.post('/api/library', async (req, res) => {
+app.post('/api/library', safeAsync(async (req, res) => {
   const key = (req.headers['x-sync-key'] || '').toString().trim();
   const bookSlug = (req.headers['x-book-slug'] || '').toString().trim().toLowerCase();
   const replaceMode = (req.headers['x-sync-replace'] || '').toString().trim() === '1';
@@ -729,7 +743,7 @@ app.post('/api/library', async (req, res) => {
     }
   }
   res.json({ ok: true });
-});
+}));
 
 app.get('/webapp/reader.html', (req, res) => {
   const query = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
