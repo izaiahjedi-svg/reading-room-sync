@@ -1007,6 +1007,9 @@
   let mainPageDebug = { loading:false, data:null, error:'' };
   let pendingCoverDataUrl = null;
   let syncStatus = { state:'idle', at:0, message:'' };
+  let progressSyncTimer = null;
+  const progressSyncState = {};
+  const PROGRESS_SYNC_MIN_INTERVAL_MS = 15000;
 
   function addSyncEvent(kind, message){
     syncEvents.unshift({ at: Date.now(), kind: kind || 'info', message: message || '' });
@@ -1849,6 +1852,45 @@
       console.warn('Remote state save failed', e);
       return false;
     }
+  }
+
+  function getProgressSyncEntry(profileId){
+    const pid = (profileId || activeProfileId || 'izaiah').toString().trim().toLowerCase();
+    if (!progressSyncState[pid]) {
+      progressSyncState[pid] = { sig:'', lastAttemptAt:0 };
+    }
+    return progressSyncState[pid];
+  }
+
+  function progressSignatureForProfile(profileId){
+    const pid = (profileId || activeProfileId || 'izaiah').toString().trim().toLowerCase();
+    const state = profileState[pid] || { progress:{ lastChapterId:null, percents:{} } };
+    return JSON.stringify(normalizeProgressState(state.progress));
+  }
+
+  async function syncProgressStateThrottled(reason){
+    if (!syncKey) return false;
+    const pid = (activeProfileId || 'izaiah').toString().trim().toLowerCase();
+    const entry = getProgressSyncEntry(pid);
+    const nextSig = progressSignatureForProfile(pid);
+    const elapsed = Date.now() - Number(entry.lastAttemptAt || 0);
+    if (entry.sig === nextSig && elapsed < PROGRESS_SYNC_MIN_INTERVAL_MS) {
+      return true;
+    }
+
+    if (progressSyncTimer) return true;
+    const waitMs = Math.max(0, PROGRESS_SYNC_MIN_INTERVAL_MS - elapsed);
+    progressSyncTimer = setTimeout(async () => {
+      progressSyncTimer = null;
+      entry.lastAttemptAt = Date.now();
+      const ok = await pushRemoteLibrary({ progressOnly:true });
+      if (ok) {
+        entry.sig = progressSignatureForProfile(pid);
+      } else {
+        addSyncEvent('state-push-throttled', 'Deferred profile state push failed (' + (reason || 'progress') + ')');
+      }
+    }, waitMs);
+    return true;
   }
 
   async function syncStateFromRemote(profileId){
@@ -3816,7 +3858,7 @@
       progress.percents[meta.id] = pendingScrollPct;
       pendingScrollPct = null;
       await persistProfileState();
-      if (syncKey) await pushRemoteLibrary({ progressOnly:true });
+      if (syncKey) await syncProgressStateThrottled('scroll');
     }
     function computePct(){
       const docHeight = document.documentElement.scrollHeight - window.innerHeight;
@@ -3953,7 +3995,7 @@
       delete progress.percents[meta.id];
       if (progress.lastChapterId === meta.id) progress.lastChapterId = null;
       await persistProfileState();
-      if (syncKey) await pushRemoteLibrary({ progressOnly:true });
+      if (syncKey) await syncProgressStateThrottled('reset');
       window.scrollTo(0, 0);
       render();
     };

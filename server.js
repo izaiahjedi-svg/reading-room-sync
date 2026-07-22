@@ -42,12 +42,19 @@ function getGitHubStorageConfig() {
 
 const githubStorageConfig = getGitHubStorageConfig();
 const githubWriteQueues = new Map();
+const githubReadCache = new Map();
+let githubRateLimitBlockedUntil = 0;
 
 function safeAsync(handler) {
   return (req, res) => {
     Promise.resolve(handler(req, res)).catch((err) => {
       console.error('Request failed:', err && err.stack ? err.stack : err);
       if (!res.headersSent) {
+        if (err && err.code === 'GITHUB_RATE_LIMIT') {
+          const retryAfterSec = Math.max(1, Math.ceil(((err.retryAfterMs || 0) / 1000)));
+          res.setHeader('Retry-After', String(retryAfterSec));
+          return res.status(429).json({ error: 'Sync backend rate limited, retry shortly' });
+        }
         res.status(502).json({ error: 'Sync backend unavailable' });
       }
     });
@@ -82,7 +89,33 @@ function githubHeaders() {
 }
 
 function isRetryableGithubStatus(status) {
-  return status === 403 || status === 408 || status === 429 || status === 500 || status === 502 || status === 503 || status === 504;
+  return status === 408 || status === 429 || status === 500 || status === 502 || status === 503 || status === 504;
+}
+
+function getRateLimitResetMs(res) {
+  const rateReset = (res && res.headers && res.headers.get('x-ratelimit-reset')) || '';
+  const resetEpochSec = Number.parseInt(rateReset, 10);
+  if (Number.isFinite(resetEpochSec) && resetEpochSec > 0) {
+    return Math.max(0, (resetEpochSec * 1000) - Date.now() + 250);
+  }
+  return 0;
+}
+
+function isGitHubRateLimitResponse(res) {
+  if (!res || res.status !== 403) return false;
+  const remaining = Number.parseInt((res.headers && res.headers.get('x-ratelimit-remaining')) || '', 10);
+  if (Number.isFinite(remaining) && remaining <= 0) return true;
+  const retryAfter = Number.parseInt((res.headers && res.headers.get('retry-after')) || '', 10);
+  if (Number.isFinite(retryAfter) && retryAfter > 0) return true;
+  return false;
+}
+
+function markGitHubRateLimitWindow(res) {
+  const resetMs = getRateLimitResetMs(res);
+  const fallbackMs = 30000;
+  const waitMs = Math.max(1000, resetMs || fallbackMs);
+  githubRateLimitBlockedUntil = Math.max(githubRateLimitBlockedUntil, Date.now() + waitMs);
+  return waitMs;
 }
 
 function retryDelayMsFromHeaders(res, attempt) {
@@ -107,11 +140,18 @@ function retryDelayMsFromHeaders(res, attempt) {
 async function githubFetchWithRetry(url, options, settings) {
   const maxAttempts = (settings && settings.maxAttempts) || 4;
   const allow404 = !!(settings && settings.allow404);
+  if (Date.now() < githubRateLimitBlockedUntil) {
+    return null;
+  }
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
       const res = await fetch(url, options);
       if (res.ok) return res;
       if (allow404 && res.status === 404) return res;
+      if (isGitHubRateLimitResponse(res)) {
+        markGitHubRateLimitWindow(res);
+        return res;
+      }
       if (isRetryableGithubStatus(res.status) && attempt < maxAttempts) {
         const delayMs = retryDelayMsFromHeaders(res, attempt);
         await new Promise((resolve) => setTimeout(resolve, delayMs));
@@ -142,16 +182,30 @@ async function githubReadJson(filePath) {
     const res = await githubFetchWithRetry(githubFileUrl(filePath) + '?ref=' + encodeURIComponent(githubStorageConfig.branch), {
       headers: githubHeaders(),
     }, { maxAttempts: 4, allow404: true });
-    if (!res) return null;
-    if (res.status === 404) return null;
-    if (!res.ok) return null;
+    if (!res) {
+      if (githubReadCache.has(filePath)) return githubReadCache.get(filePath);
+      return null;
+    }
+    if (res.status === 404) {
+      githubReadCache.delete(filePath);
+      return null;
+    }
+    if (!res.ok) {
+      if (isGitHubRateLimitResponse(res) && githubReadCache.has(filePath)) {
+        return githubReadCache.get(filePath);
+      }
+      return null;
+    }
     const payload = await res.json();
     const content = payload && payload.content ? payload.content.replace(/\n/g, '') : '';
     if (!content) return null;
     const text = Buffer.from(content, 'base64').toString('utf8');
-    return JSON.parse(text);
+    const parsed = JSON.parse(text);
+    githubReadCache.set(filePath, parsed);
+    return parsed;
   } catch (e) {
     console.warn('GitHub read failed for', filePath, e.message);
+    if (githubReadCache.has(filePath)) return githubReadCache.get(filePath);
     return null;
   }
 }
@@ -185,7 +239,12 @@ async function githubWriteJson(filePath, value, message) {
       }, { maxAttempts: 3, allow404: false });
 
       if (!res) {
-        throw new Error('GitHub write failed for ' + filePath + ': no response');
+        const err = new Error('GitHub write failed for ' + filePath + ': no response');
+        if (Date.now() < githubRateLimitBlockedUntil) {
+          err.code = 'GITHUB_RATE_LIMIT';
+          err.retryAfterMs = Math.max(1000, githubRateLimitBlockedUntil - Date.now());
+        }
+        throw err;
       }
 
       if (res.ok) {
@@ -193,6 +252,12 @@ async function githubWriteJson(filePath, value, message) {
       }
 
       const text = await res.text().catch(() => '');
+      if (res.status === 403 && /rate limit exceeded/i.test(text)) {
+        const err = new Error('GitHub write rate limited for ' + filePath);
+        err.code = 'GITHUB_RATE_LIMIT';
+        err.retryAfterMs = markGitHubRateLimitWindow(res);
+        throw err;
+      }
       if (res.status === 409 && attempt < maxAttempts) {
         // Another client updated the file between read and write; retry with latest sha.
         await new Promise((resolve) => setTimeout(resolve, 80 * attempt));
@@ -223,7 +288,21 @@ async function githubDeleteJson(filePath, message) {
       }),
     }, { maxAttempts: 3, allow404: true });
     if (!res) {
-      throw new Error('GitHub delete failed for ' + filePath + ': no response');
+      const err = new Error('GitHub delete failed for ' + filePath + ': no response');
+      if (Date.now() < githubRateLimitBlockedUntil) {
+        err.code = 'GITHUB_RATE_LIMIT';
+        err.retryAfterMs = Math.max(1000, githubRateLimitBlockedUntil - Date.now());
+      }
+      throw err;
+    }
+    if (res.status === 403) {
+      const text = await res.text().catch(() => '');
+      if (/rate limit exceeded/i.test(text)) {
+        const err = new Error('GitHub delete rate limited for ' + filePath);
+        err.code = 'GITHUB_RATE_LIMIT';
+        err.retryAfterMs = markGitHubRateLimitWindow(res);
+        throw err;
+      }
     }
     if (!res.ok && res.status !== 404) {
       const text = await res.text().catch(() => '');
