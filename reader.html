@@ -935,7 +935,7 @@
   // ---------------------------------------------------------------
   // State
   // ---------------------------------------------------------------
-  let index = [];              // [{id, title, book, volume, addedAt}] - SHARED across profiles
+  let index = [];              // [{id, title, book, volume, addedAt, updatedAtUtc}] - SHARED across profiles
   let booksMeta = {};          // { [bookName]: { title, coverDataUrl } }
   let activeProfileId = 'izaiah';
   let profiles = getDefaultProfiles();
@@ -1011,6 +1011,8 @@
   let progressSyncTimer = null;
   const progressSyncState = {};
   const PROGRESS_SYNC_MIN_INTERVAL_MS = 15000;
+  const CHAPTER_UPDATED_CUTOVER_UTC = '2026-07-31T00:00:00.000Z';
+  const CHAPTER_UPDATED_CUTOVER_MS = Date.parse(CHAPTER_UPDATED_CUTOVER_UTC) || 0;
 
   function addSyncEvent(kind, message){
     syncEvents.unshift({ at: Date.now(), kind: kind || 'info', message: message || '' });
@@ -1154,6 +1156,58 @@
     if (n < 1024) return n + ' B';
     if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
     return (n / (1024 * 1024)).toFixed(2) + ' MB';
+  }
+
+  function toUtcIsoNow(){
+    return new Date().toISOString();
+  }
+
+  function getValidUtcMs(value){
+    if (!value || typeof value !== 'string') return 0;
+    const ms = Date.parse(value);
+    return Number.isFinite(ms) ? ms : 0;
+  }
+
+  function isPostCutoverTimestamp(value){
+    const ms = getValidUtcMs(value);
+    return ms >= CHAPTER_UPDATED_CUTOVER_MS;
+  }
+
+  function normalizeChapterIndexEntry(entry){
+    if (!entry || typeof entry !== 'object') return entry;
+    const normalized = {
+      id: entry.id,
+      title: entry.title,
+      book: entry.book || null,
+      volume: entry.volume || null,
+      addedAt: entry.addedAt || Date.now(),
+    };
+    if (isPostCutoverTimestamp(entry.updatedAtUtc)) {
+      normalized.updatedAtUtc = entry.updatedAtUtc;
+    }
+    return normalized;
+  }
+
+  function formatRelativeTime(ms){
+    const diff = Date.now() - ms;
+    if (!Number.isFinite(diff) || diff < 0) return 'just now';
+    const minute = 60 * 1000;
+    const hour = 60 * minute;
+    const day = 24 * hour;
+    if (diff < minute) return 'just now';
+    if (diff < hour) return Math.floor(diff / minute) + 'm ago';
+    if (diff < day) return Math.floor(diff / hour) + 'h ago';
+    return Math.floor(diff / day) + 'd ago';
+  }
+
+  function getBookLastUpdatedLabel(chaptersInBook){
+    let latest = 0;
+    for (const chapter of chaptersInBook) {
+      const ms = getValidUtcMs(chapter && chapter.updatedAtUtc);
+      if (ms >= CHAPTER_UPDATED_CUTOVER_MS && ms > latest) latest = ms;
+    }
+    if (!latest) return 'N/A';
+    return formatRelativeTime(latest);
   }
 
   function getSyncStatusText(){
@@ -2190,14 +2244,23 @@
       // Root pulls are remote-authoritative so stale local references do not linger forever.
       // Keep only a small set of very recent local-only chapters with real local bodies.
       const remoteIndex = Array.isArray(remote.index) ? remote.index : [];
+      const localById = new Map();
+      for (const entry of localIndex) {
+        if (entry && entry.id) localById.set(entry.id, entry);
+      }
       const remoteIds = new Set(remoteIndex.map((entry) => entry && entry.id).filter(Boolean));
       const merged = [];
       const seen = new Set();
       for (const entry of remoteIndex) {
         const id = entry && entry.id;
         if (!id || seen.has(id)) continue;
+        const localEntry = localById.get(id);
+        const nextEntry = normalizeChapterIndexEntry(entry);
+        if (!nextEntry.updatedAtUtc && localEntry && isPostCutoverTimestamp(localEntry.updatedAtUtc)) {
+          nextEntry.updatedAtUtc = localEntry.updatedAtUtc;
+        }
         seen.add(id);
-        merged.push(entry);
+        merged.push(nextEntry);
       }
 
       const keepLocalOnlyAgeMs = 6 * 60 * 60 * 1000;
@@ -2217,7 +2280,7 @@
 
         if (hasLocalBody && isRecent && keptLocalOnly < keepLocalOnlyLimit) {
           seen.add(id);
-          merged.push(entry);
+          merged.push(normalizeChapterIndexEntry(entry));
           keptLocalOnly++;
         } else {
           prunedLocalOnly++;
@@ -2294,7 +2357,7 @@
       storageGet('profile-state'),
       storageGet('books-meta'),
     ]);
-    index = idx || [];
+    index = Array.isArray(idx) ? idx.map(normalizeChapterIndexEntry) : [];
     booksMeta = (booksMetaData && typeof booksMetaData === 'object') ? booksMetaData : {};
     const defaults = getDefaultProfiles();
     profiles = (profilesData && typeof profilesData === 'object')
@@ -2499,6 +2562,7 @@
       const detectedBook = detectBook(file);
       const book = pendingUploadBook || detectedBook || null;
       const volume = detectVolume(file) || pendingUploadVolume || null;
+      const uploadedAtUtc = toUtcIsoNow();
       const id = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()+Math.random()));
       const ok = await storageSet('chapter:' + id, { title, content: text });
       if (!ok){
@@ -2508,7 +2572,7 @@
       if (syncKey) {
         await pushChapterToRemote(id, { title, content: text });
       }
-      index.push({ id, title, book, volume, addedAt: Date.now() });
+      index.push({ id, title, book, volume, addedAt: Date.now(), updatedAtUtc: uploadedAtUtc });
       addedCount++;
       // small pacing gap helps avoid rate-limit errors on large batches
       if (files.length > 10) await new Promise(res => setTimeout(res, 120));
@@ -2806,7 +2870,7 @@
       const data = payload.chapters[entry.id];
       if (!data) continue;
       await storageSet('chapter:' + newId, data);
-      index.push({ id:newId, title:entry.title, book:entry.book||null, volume:entry.volume||null, addedAt:Date.now() });
+      index.push({ id:newId, title:entry.title, book:entry.book||null, volume:entry.volume||null, addedAt:Date.now(), updatedAtUtc:toUtcIsoNow() });
       if (payload.progress && payload.progress.percents && payload.progress.percents[entry.id] != null){
         progress.percents[newId] = payload.progress.percents[entry.id];
         if (payload.progress.lastChapterId === entry.id) progress.lastChapterId = newId;
@@ -2991,6 +3055,7 @@
 
     books.forEach((bookName) => {
       const chaptersInBook = allItems.filter(c => (c.book || '').trim() === bookName);
+      const lastUpdated = getBookLastUpdatedLabel(chaptersInBook);
       const meta = booksMeta[bookName] || {};
       const card = document.createElement('div');
       card.className = 'book-card';
@@ -3015,7 +3080,7 @@
       const isCurrentBookRoute = !!routeBookSlug && routeBookSlug === slugifyBookName(bookName);
       metaWrap.innerHTML = `
         <div class="book-title">${esc(getBookLabel(bookName))}</div>
-        <div class="book-sub">${chaptersInBook.length} chapter${chaptersInBook.length === 1 ? '' : 's'}</div>
+        <div class="book-sub">${chaptersInBook.length} chapter${chaptersInBook.length === 1 ? '' : 's'} • Updated ${esc(lastUpdated)}</div>
         <div class="book-actions">
           <button type="button" class="book-open-btn">${isCurrentBookRoute ? 'Showing' : 'Open'}</button>
           <button type="button" class="book-manage-btn">Edit</button>
