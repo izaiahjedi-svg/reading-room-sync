@@ -1710,8 +1710,9 @@
     }
   }
 
-  async function backfillRemoteChapters(){
-    if (!syncKey || routeBookSlug || chapterBackfillInFlight) return;
+  async function backfillRemoteChapters(options){
+    const allowScoped = !!(options && options.allowScoped);
+    if (!syncKey || (!allowScoped && routeBookSlug) || chapterBackfillInFlight) return;
     const ids = (Array.isArray(index) ? index : []).map((ch) => ch && ch.id).filter(Boolean);
     if (!ids.length) return;
 
@@ -2550,6 +2551,7 @@
 
     const failed = [];
     let addedCount = 0;
+    let remoteChapterFailed = 0;
     const progressLabel = view.mode === 'library' ? showUploadProgress(files.length) : null;
 
     for (let i=0; i<files.length; i++){
@@ -2570,7 +2572,8 @@
         continue;
       }
       if (syncKey) {
-        await pushChapterToRemote(id, { title, content: text });
+        const chapterPushed = await pushChapterToRemote(id, { title, content: text });
+        if (!chapterPushed) remoteChapterFailed++;
       }
       index.push({ id, title, book, volume, addedAt: Date.now(), updatedAtUtc: uploadedAtUtc });
       addedCount++;
@@ -2585,8 +2588,13 @@
         alert('Chapters were saved individually, but the library list failed to update. Try refreshing the page — your chapters should still be there — and if the list looks incomplete, add the missing ones again.');
       }
     }
+    let librarySyncOk = true;
     if (syncKey) {
-      await pushRemoteLibrary();
+      librarySyncOk = await pushRemoteLibrary();
+      if (!librarySyncOk || remoteChapterFailed > 0) {
+        addSyncEvent('upload-retry', 'Upload sync incomplete; running chapter backfill retry');
+        await backfillRemoteChapters({ allowScoped:true });
+      }
     }
     if (progressLabel) progressLabel(null);
     pendingChapterTitle = '';
@@ -2599,6 +2607,8 @@
       alert('Saved ' + addedCount + ' of ' + files.length + ' chapters.\n\n' +
         'These failed to save (likely a temporary connection issue) — try adding them again:\n' +
         failed.slice(0, 20).join('\n') + (failed.length > 20 ? '\n…and ' + (failed.length-20) + ' more' : ''));
+    } else if (syncKey && (!librarySyncOk || remoteChapterFailed > 0)) {
+      alert('Chapters were saved locally, but cloud sync needs a retry. The app started a background backfill pass to recover missed chapters.');
     }
   }
 
