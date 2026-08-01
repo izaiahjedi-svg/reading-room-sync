@@ -1008,6 +1008,8 @@
   let mainPageDebug = { loading:false, data:null, error:'' };
   let pendingCoverDataUrl = null;
   let syncStatus = { state:'idle', at:0, message:'' };
+  let lastRemoteLibraryErrorStatus = 0;
+  let lastRemoteLibraryRetryAfterSec = 0;
   let progressSyncTimer = null;
   const progressSyncState = {};
   const PROGRESS_SYNC_MIN_INTERVAL_MS = 15000;
@@ -2020,7 +2022,14 @@
         const controller = new AbortController();
         timeoutId = setTimeout(() => controller.abort(), timeoutMs);
         const res = await fetch(url.toString(), { signal: controller.signal });
-        if (!res.ok) return null;
+        if (!res.ok) {
+          lastRemoteLibraryErrorStatus = res.status || 0;
+          const retryAfter = Number.parseInt(res.headers.get('Retry-After') || '', 10);
+          lastRemoteLibraryRetryAfterSec = Number.isFinite(retryAfter) ? Math.max(0, retryAfter) : 0;
+          return null;
+        }
+        lastRemoteLibraryErrorStatus = 0;
+        lastRemoteLibraryRetryAfterSec = 0;
         const payload = await res.json();
         return payload && payload.data ? payload.data : null;
       } finally {
@@ -2036,6 +2045,8 @@
       return await fetchOnce(45000);
     } catch (e) {
       console.warn('Remote sync load failed', e);
+      lastRemoteLibraryErrorStatus = 0;
+      lastRemoteLibraryRetryAfterSec = 0;
       return null;
     }
   }
@@ -2097,12 +2108,15 @@
           if (!pulled) {
             const primed = await canPrimeScopedSyncFromRemote();
             if (!primed) {
-              syncDebug.failures++;
-              syncDebug.lastReason = 'Scoped sync blocked until remote data loads';
-              syncDebug.lastAt = Date.now();
-              syncStatus = { state:'failed', at:Date.now(), message:'Scoped sync blocked until remote data loads' };
-              updateSyncStatusChip();
-              return false;
+              if (replaceThisCycle) {
+                syncDebug.failures++;
+                syncDebug.lastReason = 'Scoped replace blocked until remote data loads';
+                syncDebug.lastAt = Date.now();
+                syncStatus = { state:'failed', at:Date.now(), message:'Scoped replace blocked until remote data loads' };
+                updateSyncStatusChip();
+                return false;
+              }
+              addSyncEvent('scoped-sync-degraded', 'Remote pull unavailable; continuing safe scoped merge push');
             }
           }
         }
@@ -2188,9 +2202,14 @@
     addSyncEvent('pull-start', 'Loading latest data from server');
     const remote = await loadRemoteLibrary(options);
     if (!remote || !Array.isArray(remote.index)) {
-      syncStatus = { state:'failed', at:Date.now(), message:'Remote library unavailable' };
+      const status = lastRemoteLibraryErrorStatus;
+      const retryAfter = lastRemoteLibraryRetryAfterSec;
+      const message = status === 429
+        ? ('Remote rate limited' + (retryAfter > 0 ? ' (retry in ~' + retryAfter + 's)' : ''))
+        : (status ? ('Remote library unavailable (' + status + ')') : 'Remote library unavailable');
+      syncStatus = { state:'failed', at:Date.now(), message };
       updateSyncStatusChip();
-      addSyncEvent('pull-fail', 'Remote library unavailable');
+      addSyncEvent('pull-fail', message);
       return false;
     }
     const isMetaOnly = !!(options && options.metaOnly);
