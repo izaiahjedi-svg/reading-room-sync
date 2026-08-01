@@ -969,6 +969,9 @@
   let syncInFlight = false;
   let syncPending = false;
   let syncPendingReplace = false;
+  let syncRecoveryTimer = null;
+  let syncRecoveryInFlight = false;
+  let syncRecoveryFailures = 0;
   let lastSyncedPayloadSig = '';
   let syncDebug = {
     attempts: 0,
@@ -1379,7 +1382,47 @@
     } catch (e) {}
     if (syncKey) startProfileStateAutoRefresh();
     else stopProfileStateAutoRefresh();
+    if (!syncKey && syncRecoveryTimer) {
+      clearTimeout(syncRecoveryTimer);
+      syncRecoveryTimer = null;
+      syncRecoveryFailures = 0;
+    }
     return syncKey;
+  }
+
+  function scheduleSyncRecovery(reason, delayMs){
+    if (!syncKey || routeBookSlug) return;
+    if (syncRecoveryTimer) return;
+    if (syncRecoveryFailures >= 5) {
+      addSyncEvent('recovery-stop', 'Paused recovery after repeated failures');
+      return;
+    }
+    syncRecoveryTimer = setTimeout(() => {
+      syncRecoveryTimer = null;
+      runSyncRecovery(reason).catch(() => {});
+    }, Math.max(1200, delayMs || 4000));
+  }
+
+  async function runSyncRecovery(reason){
+    if (!syncKey || routeBookSlug || syncRecoveryInFlight || syncInFlight) return false;
+    syncRecoveryInFlight = true;
+    try {
+      syncDebug.recoveryAttempts++;
+      addSyncEvent('recovery-try', 'Recovery sync attempt (' + (reason || 'pull-fail') + ')');
+      const ok = await pushRemoteLibrary();
+      if (ok) {
+        syncRecoveryFailures = 0;
+        addSyncEvent('recovery-ok', 'Recovery sync succeeded');
+        return true;
+      }
+      syncRecoveryFailures++;
+      addSyncEvent('recovery-fail', 'Recovery sync failed (attempt ' + syncRecoveryFailures + ')');
+      const retryMs = Math.min(30000, 3000 * Math.max(1, syncRecoveryFailures));
+      scheduleSyncRecovery('retry', retryMs);
+      return false;
+    } finally {
+      syncRecoveryInFlight = false;
+    }
   }
 
   async function buildLibraryPayload(options){
@@ -2210,6 +2253,9 @@
       syncStatus = { state:'failed', at:Date.now(), message };
       updateSyncStatusChip();
       addSyncEvent('pull-fail', message);
+      if (!routeBookSlug && Array.isArray(index) && index.length) {
+        scheduleSyncRecovery('pull-fail', retryAfter > 0 ? (retryAfter * 1000) : 3500);
+      }
       return false;
     }
     const isMetaOnly = !!(options && options.metaOnly);
@@ -2326,6 +2372,11 @@
     lastSyncedPayloadSig = '';
     updateSyncStatusChip();
     addSyncEvent('pull-ok', 'Pulled latest library from server (' + (remote.index || []).length + ' chapters)');
+    syncRecoveryFailures = 0;
+    if (syncRecoveryTimer) {
+      clearTimeout(syncRecoveryTimer);
+      syncRecoveryTimer = null;
+    }
     if (!routeBookSlug) {
       setTimeout(() => {
         backfillRemoteChapters().catch((e) => {
