@@ -1325,11 +1325,8 @@ body.reader-mode-v2 .reader-v2 .mobile-control{
   }
 
   .reader-v2-bottom{
-    position:fixed;
-    left:10px;
-    right:10px;
-    bottom:8px;
-    z-index:24;
+    position:static;
+    margin-top:14px;
   }
 
   .reader-v2-nav button{
