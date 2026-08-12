@@ -1980,11 +1980,22 @@ async function renderReader(){
 
 function applyReaderStyles(el){
   const settings = getSettings();
-  el.style.fontFamily = settings.font;
-  el.style.fontSize = settings.fontSize + 'px';
-  el.style.lineHeight = settings.lineHeight;
+  const fontFamily = settings.font || 'Georgia, "Iowan Old Style", serif';
+  const fontSize = (Number(settings.fontSize) || 19) + 'px';
+  const lineHeight = String(Number(settings.lineHeight) || 1.7);
+  el.style.setProperty('font-family', fontFamily, 'important');
+  el.style.setProperty('font-size', fontSize, 'important');
+  el.style.setProperty('line-height', lineHeight, 'important');
   el.style.maxWidth = '66ch';
   el.style.margin = '0 auto';
+
+  // Keep container typography aligned with the selected reader font.
+  const readerContainer = el.closest('.reader-v2');
+  if (readerContainer) {
+    readerContainer.style.setProperty('font-family', fontFamily, 'important');
+    readerContainer.style.setProperty('font-size', fontSize, 'important');
+    readerContainer.style.setProperty('line-height', lineHeight, 'important');
+  }
 }
 
 function buildReaderSettingsPanel(){
