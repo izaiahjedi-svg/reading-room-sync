@@ -122,13 +122,6 @@ function navigateToChapter(entry){
   if (!targetEntry) return;
   const chapterId = normalizeChapterId(targetEntry.id);
   if (!chapterId) return;
-  const targetUrl = getChapterUrlForEntry(targetEntry);
-  if (targetUrl) {
-    const currentUrl = window.location.pathname + window.location.search;
-    if (currentUrl !== targetUrl) {
-      window.history.pushState(null, '', targetUrl);
-    }
-  }
   openChapter(chapterId, false);
 }
 
@@ -1702,16 +1695,29 @@ async function openChapter(id, resume){
   view.chapterId = target.id;
   view.resume = !!resume;
   view.bookFilter = (target.book || '').trim();
-  const targetUrl = getChapterUrlForEntry(target);
-  if (targetUrl) {
-    const currentUrl = window.location.pathname + window.location.search;
-    if (currentUrl !== targetUrl) {
-      window.history.replaceState(null, '', targetUrl);
-    }
-  }
   if (!isMobileViewport()) view.mobileChromeCollapsed = false;
   view.sidebarOpen = false;
-  render();
+  renderTopbar();
+  document.body.classList.remove('reader-mode-v2');
+  main.innerHTML = '<div style="padding:40px;color:var(--ink-soft);">Loading…</div>';
+  try {
+    await renderReader();
+    const targetUrl = getChapterUrlForEntry(target);
+    if (targetUrl) {
+      const currentUrl = window.location.pathname + window.location.search;
+      if (currentUrl !== targetUrl) {
+        window.history.replaceState(null, '', targetUrl);
+      }
+    }
+    document.body.classList.add('reader-mode-v2');
+    applyReaderChromeState();
+  } catch (error) {
+    console.error('openChapter failed', error);
+    view.mode = 'library';
+    view.chapterId = null;
+    document.body.classList.remove('reader-mode-v2');
+    returnToLibrary();
+  }
 }
 
 async function renderReader(){
