@@ -687,6 +687,13 @@ body.reader-mobile-chrome-collapsed .reader-nav{
   background:linear-gradient(145deg, color-mix(in srgb, var(--paper) 60%, #49606d), color-mix(in srgb, var(--paper-raised) 70%, #22323a));
 }
 
+.home-cover-image{
+  width:100%;
+  aspect-ratio:3 / 4;
+  object-fit:cover;
+  display:block;
+}
+
 .home-card-body{
   padding:10px;
 }
@@ -827,6 +834,41 @@ body.reader-mobile-chrome-collapsed .reader-nav{
 .title-empty-row{
   padding:14px;
   color:var(--ink-soft);
+}
+
+.title-chapter-row{
+  border-top:1px solid var(--line);
+}
+
+.title-chapter-row:first-child{
+  border-top:0;
+}
+
+.title-chapter-btn{
+  width:100%;
+  padding:12px 14px;
+  border:0;
+  border-radius:0;
+  background:transparent;
+  color:var(--ink);
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:10px;
+  text-align:left;
+}
+
+.title-chapter-btn:hover{
+  background:var(--paper-raised);
+}
+
+.title-chapter-name{
+  font-size:15px;
+}
+
+.title-chapter-meta{
+  color:var(--ink-soft);
+  font-size:12px;
 }
 
 .admin-wrap{

@@ -1108,7 +1108,6 @@ function renderHomePage(wrap){
     continueSection.innerHTML = `
       <div class="home-section-head">
         <h2>Continue Reading</h2>
-        <button type="button" class="home-link-btn" id="openReaderFromHome">Open reader</button>
       </div>
       <div class="home-continue-panel">
         <div>
@@ -1123,7 +1122,6 @@ function renderHomePage(wrap){
       </div>`;
     wrap.appendChild(continueSection);
     continueSection.querySelector('#resumeHomeBtn').onclick = () => openChapter(activeLastChapter.id, true);
-    continueSection.querySelector('#openReaderFromHome').onclick = () => openChapter(activeLastChapter.id, false);
     continueSection.querySelector('#openTitleHomeBtn').onclick = () => {
       if (activeLastChapter.book) window.location.href = buildBookReaderPath(activeLastChapter.book);
     };
@@ -1140,11 +1138,12 @@ function renderHomePage(wrap){
   latestGrid.className = 'home-card-grid';
   latestByBook.slice(0, 6).forEach((entry) => {
     const bookChapters = index.filter((item) => (item.book || '').trim() === (entry.book || '').trim());
+    const coverSrc = resolveCoverSrc(entry.book, getBookMeta(entry.book));
     const card = document.createElement('button');
     card.type = 'button';
     card.className = 'home-title-card';
     card.innerHTML = `
-      <div class="home-cover"></div>
+      ${coverSrc ? `<img class="home-cover-image" src="${coverSrc}" alt="${esc(getBookLabel(entry.book || 'Unassigned'))} cover" />` : '<div class="home-cover"></div>'}
       <div class="home-card-body">
         <p class="home-card-title">${esc(getBookLabel(entry.book || 'Unassigned'))}</p>
         <div class="home-card-meta"><span>${bookChapters.length} chapters</span><span>Updated ${esc(getBookLastUpdatedLabel(bookChapters))}</span></div>
@@ -1239,7 +1238,18 @@ function renderTitlePage(wrap, currentBook, currentItems){
       chapterList.innerHTML = '<li class="title-empty-row">No chapters for this volume filter.</li>';
       return;
     }
-    visible.forEach((entry) => chapterList.appendChild(buildChapterRow(entry)));
+    visible.forEach((entry) => {
+      const item = document.createElement('li');
+      item.className = 'title-chapter-row';
+      const pct = Math.round(progress.percents[entry.id] || 0);
+      item.innerHTML = `
+        <button type="button" class="title-chapter-btn">
+          <span class="title-chapter-name ${pct >= 98 ? 'chapter-done' : ''}">${esc(entry.title)}</span>
+          <span class="title-chapter-meta">${pct}%</span>
+        </button>`;
+      item.querySelector('button').onclick = () => openChapter(entry.id, false);
+      chapterList.appendChild(item);
+    });
   }
 
   function renderVolumeOptions(){
