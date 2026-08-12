@@ -541,21 +541,14 @@ function renderTopbar(){
   topbarActions.innerHTML = '';
   const profileSwitcher = document.createElement('div');
   profileSwitcher.className = 'profile-switcher';
-  const profileLabel = document.createElement('span');
-  profileLabel.className = 'visually-hidden';
-  profileLabel.textContent = 'Profile';
-  const profileSelect = document.createElement('select');
-  profileSelect.className = 'profile-select';
-  profileSelect.setAttribute('aria-label', 'Profile');
   Object.entries(profiles).forEach(([id, profile]) => {
-    const opt = document.createElement('option');
-    opt.value = id;
-    opt.textContent = profile.name;
-    if (id === activeProfileId) opt.selected = true;
-    profileSelect.appendChild(opt);
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'profile-chip' + (id === activeProfileId ? ' active' : '');
+    button.textContent = profile.name;
+    button.onclick = () => switchProfile(id);
+    profileSwitcher.appendChild(button);
   });
-  profileSelect.onchange = () => switchProfile(profileSelect.value);
-  profileSwitcher.append(profileLabel, profileSelect);
 
   if (view.mode === 'library'){
     if (routeBookSlug) {
@@ -567,36 +560,35 @@ function renderTopbar(){
       brandTitle.style.cursor = '';
       brandTitle.onclick = null;
     }
-    const settings = getSettings();
-    const darkBadge = document.createElement('button');
-    darkBadge.className = 'subtle';
-    darkBadge.textContent = (settings.theme || 'dark') === 'dark' ? 'Dark ✓' : 'Light';
-    darkBadge.title = 'Toggle light/dark theme';
-    darkBadge.onclick = async () => {
-      settings.theme = (settings.theme || 'dark') === 'dark' ? 'light' : 'dark';
-      applyTheme();
-      await dataBridge.saveProfileState();
-      if (syncKey) await syncBridge.pushLibrary();
-      renderTopbar();
-    };
     const addBtn = document.createElement('button');
     addBtn.className = 'primary';
     addBtn.textContent = '+ Add chapter';
     addBtn.onclick = () => startAddChapter();
+    const adminBtn = document.createElement('button');
+    adminBtn.className = 'subtle';
+    adminBtn.textContent = 'Admin';
+    adminBtn.onclick = () => { window.location.href = '/vault-ink-77.html' + (window.location.search || ''); };
+    const themeBtn = document.createElement('button');
+    themeBtn.className = 'subtle';
+    themeBtn.textContent = 'Theme';
+    themeBtn.onclick = async () => {
+      const settings = getSettings();
+      const cycle = ['dark', 'light', 'sepia', 'graphite', 'forest'];
+      const currentIndex = Math.max(0, cycle.indexOf(settings.theme || 'dark'));
+      settings.theme = cycle[(currentIndex + 1) % cycle.length];
+      applyTheme();
+      await dataBridge.saveProfileState();
+      if (syncKey) await syncBridge.pushLibrary();
+      render();
+    };
     const debugBtn = document.createElement('button');
     debugBtn.className = 'subtle';
     debugBtn.textContent = view.debugOpen ? 'Debug ✓' : 'Debug';
-    debugBtn.title = 'Show sync and storage diagnostics';
     debugBtn.onclick = () => {
       view.debugOpen = !view.debugOpen;
       if (view.debugOpen && !routeBookSlug) refreshMainPageDebug();
       render();
     };
-    const moreBtn = document.createElement('button');
-    moreBtn.className = 'icon-btn subtle';
-    moreBtn.title = 'Export or import your library';
-    moreBtn.textContent = '⇅';
-    moreBtn.onclick = () => { view.transferOpen = !view.transferOpen; render(); };
     const syncBtn = document.createElement('button');
     syncBtn.className = 'subtle';
     syncBtn.textContent = syncKey ? 'Sync ✓' : 'Sync';
@@ -612,8 +604,8 @@ function renderTopbar(){
     syncStatusChip.disabled = true;
     syncStatusChip.textContent = getSyncStatusText();
     syncStatusChip.title = syncStatus.message || 'Sync status';
-    if (routeBookSlug) topbarActions.append(profileSwitcher, darkBadge, syncStatusChip, moreBtn, syncBtn, addBtn);
-    else topbarActions.append(profileSwitcher, darkBadge, syncStatusChip, debugBtn, moreBtn, syncBtn, addBtn);
+    if (routeBookSlug) topbarActions.append(profileSwitcher, syncStatusChip, themeBtn, adminBtn, syncBtn, addBtn);
+    else topbarActions.append(profileSwitcher, syncStatusChip, themeBtn, debugBtn, adminBtn, syncBtn, addBtn);
   } else {
     brandTitle.textContent = routeBookSlug ? '← Book Page' : '← Library';
     brandTitle.style.cursor = 'pointer';
@@ -680,7 +672,8 @@ function getDisplaySortedChapters(items){
   return list;
 }
 
-function renderBookGrid(host, allItems){
+function renderBookGrid(host, allItems, options){
+  const showActions = !(options && options.showActions === false);
   const books = getAllBookNames(allItems);
   if (!books.length) return;
   const grid = document.createElement('div');
@@ -714,19 +707,21 @@ function renderBookGrid(host, allItems){
     metaWrap.innerHTML = `
       <div class="book-title">${esc(getBookLabel(bookName))}</div>
       <div class="book-sub">${chaptersInBook.length} chapter${chaptersInBook.length === 1 ? '' : 's'} • Updated ${esc(lastUpdated)}</div>
-      <div class="book-actions">
+      ${showActions ? `<div class="book-actions">
         <button type="button" class="book-open-btn">${isCurrentBookRoute ? 'Showing' : 'Open'}</button>
         <button type="button" class="book-manage-btn">Edit</button>
-      </div>`;
+      </div>` : ''}`;
     card.appendChild(metaWrap);
 
     const openBtn = metaWrap.querySelector('.book-open-btn');
     const manageBtn = metaWrap.querySelector('.book-manage-btn');
-    openBtn.onclick = () => {
-      if (!isCurrentBookRoute) window.location.href = bookPath;
-    };
-    if (isCurrentBookRoute) openBtn.disabled = true;
-    manageBtn.onclick = () => openBookManager(bookName);
+    if (openBtn) {
+      openBtn.onclick = () => {
+        if (!isCurrentBookRoute) window.location.href = bookPath;
+      };
+      if (isCurrentBookRoute) openBtn.disabled = true;
+    }
+    if (manageBtn) manageBtn.onclick = () => openBookManager(bookName);
     grid.appendChild(card);
   });
   host.appendChild(grid);
@@ -1050,7 +1045,15 @@ function renderHomePage(wrap){
     const aTime = getValidUtcMs(a && a.updatedAtUtc) || Number(a && a.addedAt) || 0;
     const bTime = getValidUtcMs(b && b.updatedAtUtc) || Number(b && b.addedAt) || 0;
     return bTime - aTime;
-  }).slice(0, 6);
+  });
+  const latestByBook = [];
+  const seenBooks = new Set();
+  recentItems.forEach((entry) => {
+    const key = (entry.book || '').trim() || '__unassigned__';
+    if (seenBooks.has(key)) return;
+    seenBooks.add(key);
+    latestByBook.push(entry);
+  });
   const bookCount = getAllBookNames(index).length;
   const chapterCoverage = index.length ? Math.round((Object.keys(progress.percents || {}).length / index.length) * 100) : 0;
 
@@ -1105,7 +1108,8 @@ function renderHomePage(wrap){
     </div>`;
   const latestGrid = document.createElement('div');
   latestGrid.className = 'home-card-grid';
-  recentItems.forEach((entry) => {
+  latestByBook.slice(0, 6).forEach((entry) => {
+    const bookChapters = index.filter((item) => (item.book || '').trim() === (entry.book || '').trim());
     const card = document.createElement('button');
     card.type = 'button';
     card.className = 'home-title-card';
@@ -1113,7 +1117,7 @@ function renderHomePage(wrap){
       <div class="home-cover"></div>
       <div class="home-card-body">
         <p class="home-card-title">${esc(getBookLabel(entry.book || 'Unassigned'))}</p>
-        <div class="home-card-meta"><span>${esc(entry.title)}</span><span>${esc(getBookLastUpdatedLabel([entry]))}</span></div>
+        <div class="home-card-meta"><span>${bookChapters.length} chapters</span><span>Updated ${esc(getBookLastUpdatedLabel(bookChapters))}</span></div>
       </div>`;
     card.onclick = () => {
       if (entry.book) window.location.href = buildBookReaderPath(entry.book);
@@ -1131,7 +1135,7 @@ function renderHomePage(wrap){
       <h2>All Books</h2>
       <button type="button" class="home-link-btn" id="openAdminHomeBtn">Admin Path</button>
     </div>`;
-  renderBookGrid(allBooksSection, index);
+  renderBookGrid(allBooksSection, index, { showActions:false });
   wrap.appendChild(allBooksSection);
   const openAdminHomeBtn = allBooksSection.querySelector('#openAdminHomeBtn');
   if (openAdminHomeBtn) openAdminHomeBtn.onclick = () => { window.location.href = '/vault-ink-77.html' + (window.location.search || ''); };
@@ -1166,7 +1170,7 @@ function renderTitlePage(wrap, currentBook, currentItems){
       <h1>About</h1>
       <p class="title-description">${esc(currentMeta.description || 'No description saved yet. Use the admin path to add metadata for this book.')}</p>
       <div class="title-action-row">
-        <button class="primary" id="titleStartReadingBtn" type="button">Start Reading</button>
+        <button class="primary" id="titleStartReadingBtn" type="button">${lastReadInBook ? 'Continue Reading' : 'Start Reading'}</button>
       </div>
       ${lastReadInBook ? `<div class="title-resume-banner"><span>Continue from ${esc(lastReadInBook.title)}</span><button type="button" id="titleResumeBtn">Resume</button></div>` : ''}
       <div class="title-chapter-head">
@@ -1273,15 +1277,6 @@ function renderLibrary(){
 
   if (!isBookPage){
     renderHomePage(wrap);
-
-    const toolrow = document.createElement('div');
-    toolrow.className = 'toolrow';
-    toolrow.innerHTML = `
-      <div class="inline-actions">
-        <button type="button" id="manageBooksRootBtn">Manage books</button>
-      </div>`;
-    toolrow.querySelector('#manageBooksRootBtn').onclick = () => openBookManager('');
-    wrap.appendChild(toolrow);
 
     if (view.debugOpen) {
       const panel = document.createElement('div');
@@ -1735,8 +1730,8 @@ async function renderReader(){
     if (targetMeta && targetMeta.id) openChapter(targetMeta.id, false);
   }
 
-  document.getElementById('readerHomeBtn').onclick = returnToLibrary;
-  document.getElementById('readerFooterHome').onclick = returnToLibrary;
+  document.getElementById('readerHomeBtn').onclick = () => { window.location.href = getMainLibraryPath(); };
+  document.getElementById('readerFooterHome').onclick = () => { window.location.href = getMainLibraryPath(); };
   document.getElementById('readerTitleBtn').onclick = () => { window.location.href = titlePath; };
   document.getElementById('readerFooterTitle').onclick = () => { window.location.href = titlePath; };
   document.getElementById('readerPrevInline').onclick = () => goToMeta(prevMeta);
@@ -1832,7 +1827,6 @@ async function renderReader(){
     if (document.visibilityState === 'hidden') flushProgress().catch(() => {});
   });
   view._cleanupScroll = () => {
-    document.body.classList.remove('reader-mode-v2');
     window.removeEventListener('scroll', onScroll);
     window.removeEventListener('pagehide', flushProgress);
     document.removeEventListener('keydown', onKeydown);
@@ -1887,6 +1881,8 @@ function buildReaderSettingsPanel(){
           <option value="dark">Ink Contrast</option>
           <option value="light">Paper Light</option>
           <option value="sepia">Paper Amber</option>
+          <option value="graphite">Graphite Calm</option>
+          <option value="forest">Forest Night</option>
         </select>
       </div>
       <div class="reader-settings-actions">

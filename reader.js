@@ -386,6 +386,8 @@
   const bridgeEvents = createBridgeEvents();
 
   const FONT_OPTIONS = [
+    { label:'Literata', value:'"Literata", Georgia, serif' },
+    { label:'Sora', value:'"Sora", "Segoe UI", sans-serif' },
     { label:'Serif (Georgia)', value:'Georgia, "Iowan Old Style", serif' },
     { label:'Serif (Palatino)', value:'"Palatino Linotype", Palatino, serif' },
     { label:'Serif (Charter)', value:'Charter, "Bitstream Charter", serif' },
