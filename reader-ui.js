@@ -692,12 +692,12 @@ function renderTopbar(){
     brandTitle.style.cursor = 'pointer';
     brandTitle.onclick = returnToLibrary;
     topbarActions.appendChild(searchInput);
+    let booksBtn = null;
     if (routeBookSlug){
-      const booksBtn = document.createElement('button');
+      booksBtn = document.createElement('button');
       booksBtn.className = 'subtle';
       booksBtn.textContent = 'All Books';
       booksBtn.onclick = () => { window.location.href = getMainLibraryPath(); };
-      topbarActions.appendChild(booksBtn);
     }
     const listBtn = document.createElement('button');
     listBtn.className = 'icon-btn subtle';
@@ -717,7 +717,7 @@ function renderTopbar(){
     syncStatusChip.title = syncStatus.message || 'Sync status';
     const actionGroup = document.createElement('div');
     actionGroup.className = 'topbar-utility-group';
-    if (routeBookSlug) actionGroup.append(booksBtn, syncStatusChip, listBtn, settingsBtn);
+    if (routeBookSlug && booksBtn) actionGroup.append(booksBtn, syncStatusChip, listBtn, settingsBtn);
     else actionGroup.append(syncStatusChip, listBtn, settingsBtn);
     topbarActions.append(profileSwitcher, actionGroup);
   }
