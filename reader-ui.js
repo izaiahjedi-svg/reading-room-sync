@@ -1756,15 +1756,18 @@ async function renderReader(){
   const resetBtn = settingsPanel.querySelector('#readerResetProgress');
 
   const settings = getSettings();
-  fontSelect.value = settings.font;
+  const initialFontId = FONT_OPTIONS.find((option) => option.value === settings.font || option.id === settings.font)?.id || FONT_OPTIONS[0].id;
+  fontSelect.value = initialFontId;
   fontSizeInput.value = String(settings.fontSize || 19);
   lineHeightInput.value = String(settings.lineHeight || 1.7);
   themeSelect.value = settings.theme || 'dark';
 
   function syncSettingsUi(){
+    const selectedOption = fontSelect.selectedOptions[0];
+    const activeFontCss = selectedOption ? (selectedOption.dataset.fontFamily || selectedOption.value) : fontSelect.value;
     fontSizeValue.textContent = fontSizeInput.value + 'px';
     lineHeightValue.textContent = lineHeightInput.value;
-    settings.font = fontSelect.value;
+    settings.font = activeFontCss;
     settings.fontSize = Number(fontSizeInput.value || settings.fontSize || 19);
     settings.lineHeight = Number(lineHeightInput.value || settings.lineHeight || 1.7);
     settings.theme = themeSelect.value || settings.theme || 'dark';
@@ -1934,7 +1937,7 @@ function applyReaderStyles(el){
 
 function buildReaderSettingsPanel(){
   const fontOptions = FONT_OPTIONS.map((option) => {
-    return `<option value="${esc(option.value)}">${esc(option.label)}</option>`;
+    return `<option value="${esc(option.id || option.label)}" data-font-family="${esc(option.value)}">${esc(option.label)}</option>`;
   }).join('');
   return `
     <div class="reader-settings-card">
