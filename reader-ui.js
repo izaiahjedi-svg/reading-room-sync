@@ -627,6 +627,20 @@ function renderTopbar(){
     profileSwitcher.appendChild(button);
   });
 
+  const themeBtn = document.createElement('button');
+  themeBtn.className = 'subtle';
+  themeBtn.textContent = 'Theme';
+  themeBtn.onclick = async () => {
+    const settings = getSettings();
+    const cycle = ['dark', 'light', 'sepia', 'graphite', 'forest'];
+    const currentIndex = Math.max(0, cycle.indexOf(settings.theme || 'dark'));
+    settings.theme = cycle[(currentIndex + 1) % cycle.length];
+    applyTheme();
+    await dataBridge.saveProfileState();
+    if (syncKey) await syncBridge.pushLibrary();
+    render();
+  };
+
   if (view.mode === 'library'){
     if (routeBookSlug) {
       brandTitle.textContent = 'READING ROOM';
@@ -637,89 +651,12 @@ function renderTopbar(){
       brandTitle.style.cursor = '';
       brandTitle.onclick = null;
     }
-    topbarActions.appendChild(searchInput);
-    const addBtn = document.createElement('button');
-    addBtn.className = 'primary';
-    addBtn.textContent = '+ Add chapter';
-    addBtn.onclick = () => startAddChapter();
-    const adminBtn = document.createElement('button');
-    adminBtn.className = 'subtle';
-    adminBtn.textContent = 'Admin';
-    adminBtn.onclick = () => { window.location.href = '/vault-ink-77.html' + (window.location.search || ''); };
-    const themeBtn = document.createElement('button');
-    themeBtn.className = 'subtle';
-    themeBtn.textContent = 'Theme';
-    themeBtn.onclick = async () => {
-      const settings = getSettings();
-      const cycle = ['dark', 'light', 'sepia', 'graphite', 'forest'];
-      const currentIndex = Math.max(0, cycle.indexOf(settings.theme || 'dark'));
-      settings.theme = cycle[(currentIndex + 1) % cycle.length];
-      applyTheme();
-      await dataBridge.saveProfileState();
-      if (syncKey) await syncBridge.pushLibrary();
-      render();
-    };
-    const debugBtn = document.createElement('button');
-    debugBtn.className = 'subtle';
-    debugBtn.textContent = view.debugOpen ? 'Debug ✓' : 'Debug';
-    debugBtn.onclick = () => {
-      view.debugOpen = !view.debugOpen;
-      if (view.debugOpen && !routeBookSlug) refreshMainPageDebug();
-      render();
-    };
-    const syncBtn = document.createElement('button');
-    syncBtn.className = 'subtle';
-    syncBtn.textContent = syncKey ? 'Sync ✓' : 'Sync';
-    syncBtn.onclick = async () => {
-      const ok = await syncBridge.configureKey(true);
-      if (ok) {
-        alert('Sync key set. Open this same site on your phone with ?sync=' + syncKey + ' to pull the library over.');
-      }
-    };
-    const syncStatusChip = document.createElement('button');
-    syncStatusChip.className = 'subtle sync-chip';
-    syncStatusChip.id = 'syncStatusChip';
-    syncStatusChip.disabled = true;
-    syncStatusChip.textContent = getSyncStatusText();
-    syncStatusChip.title = syncStatus.message || 'Sync status';
-    const actionGroup = document.createElement('div');
-    actionGroup.className = 'topbar-utility-group';
-    if (routeBookSlug) actionGroup.append(syncStatusChip, themeBtn, adminBtn, syncBtn, addBtn);
-    else actionGroup.append(syncStatusChip, themeBtn, debugBtn, adminBtn, syncBtn, addBtn);
-    topbarActions.append(profileSwitcher, actionGroup);
+    topbarActions.append(searchInput, profileSwitcher, themeBtn);
   } else {
-    brandTitle.textContent = routeBookSlug ? 'READING ROOM' : 'READING ROOM';
+    brandTitle.textContent = 'READING ROOM';
     brandTitle.style.cursor = 'pointer';
     brandTitle.onclick = returnToLibrary;
-    topbarActions.appendChild(searchInput);
-    let booksBtn = null;
-    if (routeBookSlug){
-      booksBtn = document.createElement('button');
-      booksBtn.className = 'subtle';
-      booksBtn.textContent = 'All Books';
-      booksBtn.onclick = () => { window.location.href = getMainLibraryPath(); };
-    }
-    const listBtn = document.createElement('button');
-    listBtn.className = 'icon-btn subtle';
-    listBtn.title = 'Chapter list';
-    listBtn.textContent = '☰';
-    listBtn.onclick = () => { view.sidebarOpen = !view.sidebarOpen; renderSidebar(); };
-    const settingsBtn = document.createElement('button');
-    settingsBtn.className = 'icon-btn subtle';
-    settingsBtn.title = 'Reading settings';
-    settingsBtn.textContent = 'Aa';
-    settingsBtn.onclick = () => { view.settingsOpen = !view.settingsOpen; render(); };
-    const syncStatusChip = document.createElement('button');
-    syncStatusChip.className = 'subtle sync-chip';
-    syncStatusChip.id = 'syncStatusChip';
-    syncStatusChip.disabled = true;
-    syncStatusChip.textContent = getSyncStatusText();
-    syncStatusChip.title = syncStatus.message || 'Sync status';
-    const actionGroup = document.createElement('div');
-    actionGroup.className = 'topbar-utility-group';
-    if (routeBookSlug && booksBtn) actionGroup.append(booksBtn, syncStatusChip, listBtn, settingsBtn);
-    else actionGroup.append(syncStatusChip, listBtn, settingsBtn);
-    topbarActions.append(profileSwitcher, actionGroup);
+    topbarActions.append(searchInput, profileSwitcher, themeBtn);
   }
 }
 
@@ -1235,12 +1172,9 @@ function renderHomePage(wrap){
   allBooksSection.innerHTML = `
     <div class="home-section-head">
       <h2>All Books</h2>
-      <button type="button" class="home-link-btn" id="openAdminHomeBtn">Admin Path</button>
     </div>`;
   renderBookGrid(allBooksSection, index, { showActions:false });
   wrap.appendChild(allBooksSection);
-  const openAdminHomeBtn = allBooksSection.querySelector('#openAdminHomeBtn');
-  if (openAdminHomeBtn) openAdminHomeBtn.onclick = () => { window.location.href = '/vault-ink-77.html' + (window.location.search || ''); };
 }
 
 function renderTitlePage(wrap, currentBook, currentItems){

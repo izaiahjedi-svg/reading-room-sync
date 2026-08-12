@@ -388,13 +388,13 @@
   const FONT_OPTIONS = [
     { label:'Literata', value:'"Literata", Georgia, serif' },
     { label:'Sora', value:'"Sora", "Segoe UI", sans-serif' },
-    { label:'Serif (Georgia)', value:'Georgia, "Iowan Old Style", serif' },
-    { label:'Serif (Palatino)', value:'"Palatino Linotype", Palatino, serif' },
-    { label:'Serif (Charter)', value:'Charter, "Bitstream Charter", serif' },
-    { label:'Sans (system)', value:'-apple-system, "Segoe UI", Roboto, sans-serif' },
-    { label:'Sans (Verdana)', value:'Verdana, sans-serif' },
-    { label:'Monospace', value:'ui-monospace, "SFMono-Regular", Menlo, monospace' },
-    { label:'Patrick Hand (dyslexia-friendly)', value:'"Patrick Hand", cursive' },
+    { label:'Georgia', value:'Georgia, "Times New Roman", serif' },
+    { label:'Palatino', value:'"Palatino Linotype", "Book Antiqua", Palatino, serif' },
+    { label:'Charter', value:'"Charter", "Bitstream Charter", Georgia, serif' },
+    { label:'Verdana Sans', value:'Verdana, "Segoe UI", sans-serif' },
+    { label:'System Sans', value:'"Segoe UI", Tahoma, Verdana, sans-serif' },
+    { label:'Monospace', value:'"SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace' },
+    { label:'Patrick Hand', value:'"Patrick Hand", "Comic Sans MS", cursive' },
   ];
 
   const app = document.getElementById('app');
