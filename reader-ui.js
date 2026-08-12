@@ -109,9 +109,17 @@ function getChapterUrlForEntry(entry){
 }
 
 function navigateToChapter(entry){
+  if (!entry) return;
+  const chapterId = normalizeChapterId(entry.id);
+  if (!chapterId) return;
   const targetUrl = getChapterUrlForEntry(entry);
-  if (!targetUrl) return;
-  window.location.href = targetUrl;
+  if (targetUrl) {
+    const currentUrl = window.location.pathname + window.location.search;
+    if (currentUrl !== targetUrl) {
+      window.history.pushState(null, '', targetUrl);
+    }
+  }
+  openChapter(chapterId, false);
 }
 
 function clearChapterParamFromUrl(){
