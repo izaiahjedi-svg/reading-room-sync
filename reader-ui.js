@@ -27,13 +27,18 @@ async function init(){
   setSyncKey(getSyncKeyFromUrl() || getStoredSyncKey());
   applyTheme();
   normalizeChapterParamInUrl();
+  renderTopbar();
+  render();
   const requestedChapterId = getRequestedChapterIdFromUrl();
   const requestedChapter = requestedChapterId ? findChapterById(requestedChapterId) : null;
   if (requestedChapter) {
-    await openChapter(requestedChapter.id, true);
-  } else {
-    renderTopbar();
-    render();
+    try {
+      await openChapter(requestedChapter.id, true);
+    } catch (e) {
+      console.warn('Initial chapter open failed', e);
+      clearChapterParamFromUrl();
+      returnToLibrary();
+    }
   }
 
   persistProfileState().catch((e) => {
@@ -737,23 +742,27 @@ function renderTopbar(){
 }
 
 function render(){
-  document.body.classList.toggle('reader-mode-v2', view.mode === 'reader');
   if (view.mode !== 'reader' && typeof view._cleanupScroll === 'function'){
     view._cleanupScroll();
     view._cleanupScroll = null;
   }
   renderTopbar();
   if (view.mode === 'library') {
+    document.body.classList.remove('reader-mode-v2');
     renderLibrary();
+    applyReaderChromeState();
   } else {
-    Promise.resolve(renderReader()).catch((error) => {
+    Promise.resolve(renderReader()).then(() => {
+      document.body.classList.add('reader-mode-v2');
+      applyReaderChromeState();
+    }).catch((error) => {
       console.error('Reader render failed', error);
       view.mode = 'library';
       view.chapterId = null;
+      document.body.classList.remove('reader-mode-v2');
       render();
     });
   }
-  applyReaderChromeState();
 }
 
 function getDisplaySortedChapters(items){
