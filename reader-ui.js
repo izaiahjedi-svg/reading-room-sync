@@ -26,8 +26,16 @@ async function init(){
   if (routeBookSlug) view.booksCollapsed = true;
   setSyncKey(getSyncKeyFromUrl() || getStoredSyncKey());
   applyTheme();
-  renderTopbar();
-  render();
+  const requestedChapterId = getRequestedChapterIdFromUrl();
+  const requestedChapter = requestedChapterId
+    ? index.find((entry) => entry && entry.id === requestedChapterId)
+    : null;
+  if (requestedChapter) {
+    await openChapter(requestedChapter.id, true);
+  } else {
+    renderTopbar();
+    render();
+  }
 
   persistProfileState().catch((e) => {
     console.warn('Initial profile state save failed', e);
@@ -61,6 +69,40 @@ async function init(){
       });
     }, 600);
   }
+}
+
+function getRequestedChapterIdFromUrl(){
+  try {
+    const params = new URLSearchParams(window.location.search || '');
+    return (params.get('chapter') || '').trim();
+  } catch (e) {
+    return '';
+  }
+}
+
+function getChapterUrlForEntry(entry){
+  if (!entry || !entry.id) return '';
+  const basePath = entry.book ? buildBookReaderPath(entry.book) : getMainLibraryPath();
+  const targetUrl = new URL(basePath, window.location.origin);
+  const params = new URLSearchParams(targetUrl.search || '');
+  params.set('chapter', entry.id);
+  const nextSearch = params.toString();
+  return targetUrl.pathname + (nextSearch ? ('?' + nextSearch) : '');
+}
+
+function navigateToChapter(entry){
+  const targetUrl = getChapterUrlForEntry(entry);
+  if (!targetUrl) return;
+  window.location.href = targetUrl;
+}
+
+function clearChapterParamFromUrl(){
+  const params = new URLSearchParams(window.location.search || '');
+  if (!params.has('chapter')) return;
+  params.delete('chapter');
+  const nextSearch = params.toString();
+  const target = window.location.pathname + (nextSearch ? ('?' + nextSearch) : '');
+  window.history.replaceState(null, '', target);
 }
 
 fileInput.addEventListener('change', (e) => handleUpload(e.target.files, fileInput));
@@ -178,6 +220,7 @@ function returnToLibrary(){
   view.search = '';
   view.settingsOpen = false;
   view.sidebarOpen = false;
+  clearChapterParamFromUrl();
   renderTopbar();
   render();
   window.scrollTo(0, 0);
@@ -1158,7 +1201,7 @@ function renderHomePage(wrap){
       </div>`;
     card.onclick = () => {
       if (entry.book) window.location.href = buildBookReaderPath(entry.book);
-      else openChapter(entry.id, false);
+      else navigateToChapter(entry);
     };
     latestGrid.appendChild(card);
   });
@@ -1224,10 +1267,10 @@ function renderTitlePage(wrap, currentBook, currentItems){
   const startTarget = lastReadInBook || currentItems[0] || null;
   const startBtn = layout.querySelector('#titleStartReadingBtn');
   if (startBtn) startBtn.onclick = () => {
-    if (startTarget) openChapter(startTarget.id, !!lastReadInBook);
+    if (startTarget) navigateToChapter(startTarget);
   };
   const resumeBtn = layout.querySelector('#titleResumeBtn');
-  if (resumeBtn && lastReadInBook) resumeBtn.onclick = () => openChapter(lastReadInBook.id, true);
+  if (resumeBtn && lastReadInBook) resumeBtn.onclick = () => navigateToChapter(lastReadInBook);
 
   const chapterSearch = layout.querySelector('#titleChapterSearch');
   const volumeSelect = layout.querySelector('#titleVolumeSelect');
@@ -1258,7 +1301,7 @@ function renderTitlePage(wrap, currentBook, currentItems){
       item.querySelector('button').onclick = (event) => {
         event.preventDefault();
         event.stopPropagation();
-        openChapter(entry.id, false);
+        navigateToChapter(entry);
       };
       chapterList.appendChild(item);
     });
@@ -1618,6 +1661,13 @@ async function openChapter(id, resume){
   view.chapterId = target.id;
   view.resume = !!resume;
   view.bookFilter = (target.book || '').trim();
+  const targetUrl = getChapterUrlForEntry(target);
+  if (targetUrl) {
+    const currentUrl = window.location.pathname + window.location.search;
+    if (currentUrl !== targetUrl) {
+      window.history.replaceState(null, '', targetUrl);
+    }
+  }
   if (!isMobileViewport()) view.mobileChromeCollapsed = false;
   view.sidebarOpen = false;
   render();
