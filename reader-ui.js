@@ -26,6 +26,7 @@ async function init(){
   if (routeBookSlug) view.booksCollapsed = true;
   setSyncKey(getSyncKeyFromUrl() || getStoredSyncKey());
   applyTheme();
+  normalizeChapterParamInUrl();
   const requestedChapterId = getRequestedChapterIdFromUrl();
   const requestedChapter = requestedChapterId
     ? index.find((entry) => entry && entry.id === requestedChapterId)
@@ -71,21 +72,38 @@ async function init(){
   }
 }
 
+function normalizeChapterId(value){
+  return (value == null ? '' : String(value)).trim();
+}
+
+function normalizeChapterParamInUrl(){
+  const params = new URLSearchParams(window.location.search || '');
+  if (!params.has('chapter')) return;
+  const chapterId = normalizeChapterId(params.get('chapter'));
+  if (chapterId) return;
+  params.delete('chapter');
+  const nextSearch = params.toString();
+  const target = window.location.pathname + (nextSearch ? ('?' + nextSearch) : '');
+  window.history.replaceState(null, '', target);
+}
+
 function getRequestedChapterIdFromUrl(){
   try {
     const params = new URLSearchParams(window.location.search || '');
-    return (params.get('chapter') || '').trim();
+    return normalizeChapterId(params.get('chapter'));
   } catch (e) {
     return '';
   }
 }
 
 function getChapterUrlForEntry(entry){
-  if (!entry || !entry.id) return '';
+  if (!entry) return '';
+  const chapterId = normalizeChapterId(entry.id);
+  if (!chapterId) return '';
   const basePath = entry.book ? buildBookReaderPath(entry.book) : getMainLibraryPath();
   const targetUrl = new URL(basePath, window.location.origin);
   const params = new URLSearchParams(targetUrl.search || '');
-  params.set('chapter', entry.id);
+  params.set('chapter', chapterId);
   const nextSearch = params.toString();
   return targetUrl.pathname + (nextSearch ? ('?' + nextSearch) : '');
 }
