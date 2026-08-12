@@ -934,9 +934,29 @@
       out[key] = {
         title: meta.title || key,
         coverPath: meta.coverPath || '',
+        author: meta.author || '',
+        status: meta.status || '',
+        description: meta.description || '',
+        tags: Array.isArray(meta.tags) ? meta.tags.filter(Boolean) : [],
       };
     }
     return out;
+  }
+
+  function getBookMeta(bookName){
+    const key = (bookName || '').trim();
+    const meta = (key && booksMeta && booksMeta[key] && typeof booksMeta[key] === 'object')
+      ? booksMeta[key]
+      : {};
+    return {
+      title: meta.title || key || 'Untitled',
+      coverPath: meta.coverPath || '',
+      coverDataUrl: meta.coverDataUrl || '',
+      author: meta.author || '',
+      status: meta.status || '',
+      description: meta.description || '',
+      tags: Array.isArray(meta.tags) ? meta.tags.filter(Boolean) : [],
+    };
   }
 
   function resolveCoverSrc(bookName, meta){

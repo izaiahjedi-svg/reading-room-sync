@@ -1043,6 +1043,202 @@ function openBookManager(prefillBook){
   backdrop.classList.add('open');
 }
 
+function renderHomePage(wrap){
+  const progress = getProgress();
+  const activeLastChapter = progress.lastChapterId ? index.find((entry) => entry.id === progress.lastChapterId) : null;
+  const recentItems = [...index].sort((a, b) => {
+    const aTime = getValidUtcMs(a && a.updatedAtUtc) || Number(a && a.addedAt) || 0;
+    const bTime = getValidUtcMs(b && b.updatedAtUtc) || Number(b && b.addedAt) || 0;
+    return bTime - aTime;
+  }).slice(0, 6);
+  const bookCount = getAllBookNames(index).length;
+  const chapterCoverage = index.length ? Math.round((Object.keys(progress.percents || {}).length / index.length) * 100) : 0;
+
+  const hero = document.createElement('section');
+  hero.className = 'home-hero';
+  hero.innerHTML = `
+    <div class="home-section-head">
+      <h2>Reading Room Status</h2>
+      <span class="home-subtle">Last sync: ${esc(getSyncStatusText())}</span>
+    </div>
+    <div class="home-status-grid">
+      <div class="home-status-card"><span class="k">Library</span><span class="v">${bookCount} books</span></div>
+      <div class="home-status-card"><span class="k">Chapters</span><span class="v">${index.length} total</span></div>
+      <div class="home-status-card"><span class="k">Reading Progress</span><span class="v">${chapterCoverage}% tracked</span></div>
+    </div>`;
+  wrap.appendChild(hero);
+
+  if (activeLastChapter) {
+    const continueSection = document.createElement('section');
+    continueSection.className = 'home-section';
+    const pct = Math.round(progress.percents[activeLastChapter.id] || 0);
+    continueSection.innerHTML = `
+      <div class="home-section-head">
+        <h2>Continue Reading</h2>
+        <button type="button" class="home-link-btn" id="openReaderFromHome">Open reader</button>
+      </div>
+      <div class="home-continue-panel">
+        <div>
+          <p class="home-continue-label">Last Read</p>
+          <h3 class="home-continue-title">${esc(getBookLabel(activeLastChapter.book || ''))} - ${esc(activeLastChapter.title)}</h3>
+          <p class="home-continue-meta">${pct}% complete</p>
+        </div>
+        <div class="home-continue-actions">
+          <button class="primary" id="resumeHomeBtn" type="button">Resume</button>
+          <button id="openTitleHomeBtn" type="button">Open Title</button>
+        </div>
+      </div>`;
+    wrap.appendChild(continueSection);
+    continueSection.querySelector('#resumeHomeBtn').onclick = () => openChapter(activeLastChapter.id, true);
+    continueSection.querySelector('#openReaderFromHome').onclick = () => openChapter(activeLastChapter.id, false);
+    continueSection.querySelector('#openTitleHomeBtn').onclick = () => {
+      if (activeLastChapter.book) window.location.href = buildBookReaderPath(activeLastChapter.book);
+    };
+  }
+
+  const latest = document.createElement('section');
+  latest.className = 'home-section';
+  latest.innerHTML = `
+    <div class="home-section-head">
+      <h2>Latest Updates</h2>
+      <span class="home-subtle">Recent chapter activity</span>
+    </div>`;
+  const latestGrid = document.createElement('div');
+  latestGrid.className = 'home-card-grid';
+  recentItems.forEach((entry) => {
+    const card = document.createElement('button');
+    card.type = 'button';
+    card.className = 'home-title-card';
+    card.innerHTML = `
+      <div class="home-cover"></div>
+      <div class="home-card-body">
+        <p class="home-card-title">${esc(getBookLabel(entry.book || 'Unassigned'))}</p>
+        <div class="home-card-meta"><span>${esc(entry.title)}</span><span>${esc(getBookLastUpdatedLabel([entry]))}</span></div>
+      </div>`;
+    card.onclick = () => {
+      if (entry.book) window.location.href = buildBookReaderPath(entry.book);
+      else openChapter(entry.id, false);
+    };
+    latestGrid.appendChild(card);
+  });
+  latest.appendChild(latestGrid);
+  wrap.appendChild(latest);
+
+  const allBooksSection = document.createElement('section');
+  allBooksSection.className = 'home-section';
+  allBooksSection.innerHTML = `
+    <div class="home-section-head">
+      <h2>All Books</h2>
+      <button type="button" class="home-link-btn" id="openAdminHomeBtn">Admin Path</button>
+    </div>`;
+  renderBookGrid(allBooksSection, index);
+  wrap.appendChild(allBooksSection);
+  const openAdminHomeBtn = allBooksSection.querySelector('#openAdminHomeBtn');
+  if (openAdminHomeBtn) openAdminHomeBtn.onclick = () => { window.location.href = '/vault-ink-77.html' + (window.location.search || ''); };
+}
+
+function renderTitlePage(wrap, currentBook, currentItems){
+  const currentMeta = getBookMeta(currentBook);
+  const progress = getProgress();
+  const lastReadInBook = progress.lastChapterId ? currentItems.find((c) => c.id === progress.lastChapterId) : null;
+  const volumes = [...new Set(currentItems.map((c) => (c.volume || '').trim() || 'Chapters'))];
+  const lastUpdated = getBookLastUpdatedLabel(currentItems);
+  const currentCoverSrc = resolveCoverSrc(currentBook, currentMeta);
+
+  const layout = document.createElement('div');
+  layout.className = 'title-layout';
+  layout.innerHTML = `
+    <aside class="title-sidebar">
+      ${currentCoverSrc ? `<img class="title-sidebar-cover" src="${currentCoverSrc}" alt="${esc(getBookLabel(currentBook))} cover" />` : '<div class="title-sidebar-cover-fallback">BOOK</div>'}
+      <div class="title-sidebar-body">
+        <h2>${esc(getBookLabel(currentBook))}</h2>
+        <div class="title-tag-row">${(currentMeta.tags || []).map((tag) => `<span class="title-tag">${esc(tag)}</span>`).join('') || '<span class="title-tag">Unsorted</span>'}</div>
+        <ul class="title-meta-list">
+          <li>Status: <strong>${esc(currentMeta.status || 'Ongoing')}</strong></li>
+          <li>Author: <strong>${esc(currentMeta.author || 'Unknown')}</strong></li>
+          <li>Total chapters: <strong>${currentItems.length}</strong></li>
+          <li>Volumes: <strong>${volumes.length}</strong></li>
+          <li>Last update: <strong>${esc(lastUpdated)}</strong></li>
+        </ul>
+      </div>
+    </aside>
+    <section class="title-main">
+      <h1>About</h1>
+      <p class="title-description">${esc(currentMeta.description || 'No description saved yet. Use the admin path to add metadata for this book.')}</p>
+      <div class="title-action-row">
+        <button class="primary" id="titleStartReadingBtn" type="button">Start Reading</button>
+      </div>
+      ${lastReadInBook ? `<div class="title-resume-banner"><span>Continue from ${esc(lastReadInBook.title)}</span><button type="button" id="titleResumeBtn">Resume</button></div>` : ''}
+      <div class="title-chapter-head">
+        <h2>Chapters</h2>
+        <div class="title-volume-controls">
+          <input id="titleVolumeSearch" class="title-volume-search" placeholder="Search volume" />
+          <select id="titleVolumeSelect" class="title-volume-select" aria-label="Volume filter"></select>
+        </div>
+      </div>
+      <ul id="titleChapterList" class="title-chapter-list"></ul>
+    </section>`;
+  wrap.appendChild(layout);
+
+  const startTarget = lastReadInBook || currentItems[0] || null;
+  const startBtn = layout.querySelector('#titleStartReadingBtn');
+  if (startBtn) startBtn.onclick = () => {
+    if (startTarget) openChapter(startTarget.id, !!lastReadInBook);
+  };
+  const resumeBtn = layout.querySelector('#titleResumeBtn');
+  if (resumeBtn && lastReadInBook) resumeBtn.onclick = () => openChapter(lastReadInBook.id, true);
+
+  const volumeSearch = layout.querySelector('#titleVolumeSearch');
+  const volumeSelect = layout.querySelector('#titleVolumeSelect');
+  const chapterList = layout.querySelector('#titleChapterList');
+
+  function getFilteredVolumes(){
+    const term = (volumeSearch.value || '').trim().toLowerCase();
+    if (!term) return volumes;
+    return volumes.filter((volume) => volume.toLowerCase().includes(term));
+  }
+
+  function renderScopedChapters(selectedVolume){
+    chapterList.innerHTML = '';
+    const visible = currentItems.filter((entry) => ((entry.volume || '').trim() || 'Chapters') === selectedVolume);
+    if (!visible.length) {
+      chapterList.innerHTML = '<li class="title-empty-row">No chapters for this volume filter.</li>';
+      return;
+    }
+    visible.forEach((entry) => chapterList.appendChild(buildChapterRow(entry)));
+  }
+
+  function renderVolumeOptions(){
+    const filteredVolumes = getFilteredVolumes();
+    const selectedValue = volumeSelect.value;
+    volumeSelect.innerHTML = '';
+    if (!filteredVolumes.length) {
+      const none = document.createElement('option');
+      none.value = '';
+      none.textContent = 'No matching volume';
+      volumeSelect.appendChild(none);
+      renderScopedChapters('');
+      return;
+    }
+    filteredVolumes.forEach((volume) => {
+      const option = document.createElement('option');
+      option.value = volume;
+      option.textContent = volume;
+      volumeSelect.appendChild(option);
+    });
+    if (filteredVolumes.includes(selectedValue)) {
+      volumeSelect.value = selectedValue;
+    }
+    const activeVolume = filteredVolumes.includes(volumeSelect.value) ? volumeSelect.value : filteredVolumes[0];
+    volumeSelect.value = activeVolume;
+    renderScopedChapters(activeVolume);
+  }
+
+  volumeSearch.addEventListener('input', renderVolumeOptions);
+  volumeSelect.addEventListener('change', () => renderScopedChapters(volumeSelect.value));
+  renderVolumeOptions();
+}
+
 function renderLibrary(){
   main.innerHTML = '';
   const wrap = document.createElement('div');
@@ -1076,6 +1272,8 @@ function renderLibrary(){
   }
 
   if (!isBookPage){
+    renderHomePage(wrap);
+
     const toolrow = document.createElement('div');
     toolrow.className = 'toolrow';
     toolrow.innerHTML = `
@@ -1173,7 +1371,6 @@ function renderLibrary(){
       };
     }
 
-    renderBookGrid(wrap, index);
     if (view.transferOpen){
       const panel = document.createElement('div');
       panel.className = 'continue-card';
@@ -1200,60 +1397,8 @@ function renderLibrary(){
   view.chapterSort = 'book-volume-added';
 
   const currentBook = routeBookName || (index[0] && index[0].book) || '';
-  const currentMeta = booksMeta[currentBook] || {};
   const currentItems = index.filter(c => (c.book || '').trim() === currentBook);
-  const progress = getProgress();
-  const lastReadInBook = progress.lastChapterId
-    ? currentItems.find(c => c.id === progress.lastChapterId)
-    : null;
-  const header = document.createElement('div');
-  header.className = 'book-page-header';
-  const currentCoverSrc = resolveCoverSrc(currentBook, currentMeta);
-  const coverHtml = currentCoverSrc
-    ? `<img class="book-page-cover" src="${currentCoverSrc}" alt="${esc(getBookLabel(currentBook))} cover" />`
-    : '<div class="book-page-cover-fallback">BOOK</div>';
-  header.innerHTML = `
-    ${coverHtml}
-    <div class="book-page-meta">
-      <div class="book-page-title">${esc(getBookLabel(currentBook))}</div>
-      <div class="book-page-sub">${currentItems.length} chapter${currentItems.length === 1 ? '' : 's'} • sorted by volume</div>
-      <div class="book-page-actions">
-        <button type="button" id="bookPageSettingsBtn">Book settings</button>
-        <button type="button" id="bookPageAddBtn" class="primary">+ Add chapters</button>
-        <button type="button" id="bookPageBackBtn">All books</button>
-      </div>
-    </div>`;
-  wrap.appendChild(header);
-  header.querySelector('#bookPageSettingsBtn').onclick = () => openBookManager(currentBook || '__new__');
-  header.querySelector('#bookPageAddBtn').onclick = () => startAddChapterToBook(currentBook || '');
-  header.querySelector('#bookPageBackBtn').onclick = () => { window.location.href = getMainLibraryPath(); };
-
-  if (lastReadInBook){
-    const pct = Math.round(progress.percents[lastReadInBook.id] || 0);
-    const card = document.createElement('div');
-    card.className = 'continue-card';
-    card.innerHTML = `
-      <div>
-        <div class="label">Continue reading</div>
-        <div class="title">${esc(lastReadInBook.title)}</div>
-        <div class="pct">${pct}% through this chapter</div>
-      </div>
-      <button class="primary">Resume →</button>`;
-    card.querySelector('button').onclick = () => openChapter(lastReadInBook.id, true);
-    wrap.appendChild(card);
-  }
-
-  const toolrow = document.createElement('div');
-  toolrow.className = 'toolrow';
-  toolrow.innerHTML = `<input class="search-input" placeholder="Filter chapters in this book…" value="${esc(view.search||'')}" />`;
-  wrap.appendChild(toolrow);
-
-  const list = document.createElement('div');
-  list.id = 'chapterListContainer';
-  wrap.appendChild(list);
-  const searchInput = toolrow.querySelector('input');
-  searchInput.oninput = (e) => { view.search = e.target.value; renderChapterList(list); };
-  renderChapterList(list);
+  renderTitlePage(wrap, currentBook, currentItems);
 
   main.appendChild(wrap);
 }

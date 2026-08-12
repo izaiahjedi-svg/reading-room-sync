@@ -1,0 +1,241 @@
+async function initAdminPage(){
+  const [idx, profilesData, profileStateData, booksMetaData] = await dataBridge.loadBootstrapState();
+  index = Array.isArray(idx) ? idx.map(normalizeChapterIndexEntry) : [];
+  booksMeta = (booksMetaData && typeof booksMetaData === 'object') ? booksMetaData : {};
+  profiles = (profilesData && typeof profilesData === 'object') ? Object.assign({}, getDefaultProfiles(), profilesData) : getDefaultProfiles();
+  if (profileStateData && typeof profileStateData === 'object') profileState = profileStateData;
+  Object.keys(profiles).forEach((id) => {
+    if (!profileState[id]) {
+      profileState[id] = {
+        progress: { lastChapterId:null, percents:{} },
+        settings: getDefaultProfileSettings()
+      };
+    }
+  });
+  const storedProfileId = getStoredActiveProfileId();
+  activeProfileId = profiles[storedProfileId] ? storedProfileId : 'izaiah';
+  storeActiveProfileId(activeProfileId);
+  setSyncKey(getSyncKeyFromUrl() || getStoredSyncKey());
+  applyTheme();
+  if (syncKey) {
+    await syncBridge.pullLibrary({ metaOnly:true }).catch(() => {});
+    await syncBridge.pullProfileState(activeProfileId).catch(() => {});
+  }
+  renderAdminPage();
+}
+
+function adminSetStatus(message) {
+  const status = document.getElementById('adminSaveState');
+  if (status) status.textContent = message;
+}
+
+function parseAdminChapterLines(text) {
+  return String(text || '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const parts = line.split('|').map((part) => part.trim()).filter(Boolean);
+      if (parts.length >= 4) return { volume: parts[0], title: parts[2] };
+      if (parts.length >= 2) return { volume: parts[0], title: parts[1] };
+      return { volume: 'Chapters', title: parts[0] || '' };
+    })
+    .filter((entry) => entry.title);
+}
+
+function formatAdminChapterLines(bookName) {
+  const rows = getDisplaySortedChapters(index.filter((entry) => (entry.book || '').trim() === (bookName || '').trim()));
+  return rows.map((entry) => `${entry.volume || 'Chapters'} | ${entry.title}`).join('\n');
+}
+
+function renderAdminPage() {
+  main.innerHTML = `
+    <div class="admin-wrap">
+      <section class="admin-intro">
+        <div class="home-section-head">
+          <h2>Secret Admin Path</h2>
+          <a class="home-subtle-link" href="/reader.html${window.location.search || ''}">Back to library</a>
+        </div>
+        <p class="admin-intro-copy">This page edits real Reading Room metadata and chapter labels. It stays hidden by path only.</p>
+      </section>
+      <div class="admin-layout">
+        <aside class="admin-panel">
+          <h3>Quick Add Book</h3>
+          <div class="admin-field"><label for="adminQuickTitle">Title</label><input id="adminQuickTitle" /></div>
+          <div class="admin-field"><label for="adminQuickAuthor">Author</label><input id="adminQuickAuthor" /></div>
+          <div class="admin-field"><label for="adminQuickStatus">Status</label><input id="adminQuickStatus" value="Ongoing" /></div>
+          <div class="admin-field"><label for="adminQuickTags">Tags</label><input id="adminQuickTags" placeholder="Action, Fantasy" /></div>
+          <div class="admin-field"><label for="adminQuickDescription">Description</label><textarea id="adminQuickDescription" class="admin-textarea"></textarea></div>
+          <button class="primary" id="adminCreateBookBtn" type="button">Add Book</button>
+        </aside>
+        <section class="admin-panel admin-panel-wide">
+          <div class="home-section-head">
+            <h2>Edit Book</h2>
+            <span id="adminSaveState" class="home-subtle">Ready</span>
+          </div>
+          <div class="admin-grid-live">
+            <div class="admin-field"><label for="adminBookSelect">Select Book</label><select id="adminBookSelect"></select></div>
+            <div class="admin-field"><label for="adminBookTitle">Title</label><input id="adminBookTitle" /></div>
+            <div class="admin-field"><label for="adminBookAuthor">Author</label><input id="adminBookAuthor" /></div>
+            <div class="admin-field"><label for="adminBookStatus">Status</label><input id="adminBookStatus" /></div>
+            <div class="admin-field admin-wide"><label for="adminBookTags">Tags</label><input id="adminBookTags" placeholder="Action, Fantasy" /></div>
+            <div class="admin-field admin-wide"><label for="adminBookDescription">Description</label><textarea id="adminBookDescription" class="admin-textarea"></textarea></div>
+            <div class="admin-field admin-wide"><label for="adminBookChapters">Volumes + Chapter Titles</label><textarea id="adminBookChapters" class="admin-textarea admin-textarea-tall"></textarea><p class="admin-help">Use one line per chapter. Format: Volume | Chapter Title</p></div>
+          </div>
+          <div class="admin-action-row">
+            <button class="primary" id="adminSaveBookBtn" type="button">Save Changes</button>
+            <button id="adminDeleteBookBtn" type="button">Delete Book</button>
+            <button id="adminOpenTitleBtn" type="button">Open Title</button>
+            <button id="adminSyncBtn" type="button">Sync Now</button>
+          </div>
+        </section>
+      </div>
+    </div>`;
+
+  const bookSelect = document.getElementById('adminBookSelect');
+  const bookTitle = document.getElementById('adminBookTitle');
+  const bookAuthor = document.getElementById('adminBookAuthor');
+  const bookStatus = document.getElementById('adminBookStatus');
+  const bookTags = document.getElementById('adminBookTags');
+  const bookDescription = document.getElementById('adminBookDescription');
+  const bookChapters = document.getElementById('adminBookChapters');
+
+  function loadBookOptions() {
+    const books = getAllBookNames();
+    bookSelect.innerHTML = '';
+    books.forEach((bookName) => {
+      const option = document.createElement('option');
+      option.value = bookName;
+      option.textContent = getBookLabel(bookName);
+      bookSelect.appendChild(option);
+    });
+    if (books.length && !bookSelect.value) bookSelect.value = books[0];
+  }
+
+  function loadBookForm(bookName) {
+    const meta = getBookMeta(bookName);
+    bookTitle.value = meta.title || '';
+    bookAuthor.value = meta.author || '';
+    bookStatus.value = meta.status || '';
+    bookTags.value = (meta.tags || []).join(', ');
+    bookDescription.value = meta.description || '';
+    bookChapters.value = formatAdminChapterLines(bookName);
+  }
+
+  async function saveBookChanges() {
+    const selected = (bookSelect.value || '').trim();
+    if (!selected) return;
+    const nextTitle = (bookTitle.value || '').trim();
+    if (!nextTitle) {
+      adminSetStatus('Title required');
+      return;
+    }
+
+    let targetKey = selected;
+    if (selected !== nextTitle) {
+      index.forEach((entry) => {
+        if ((entry.book || '').trim() === selected) entry.book = nextTitle;
+      });
+      if (booksMeta[selected]) {
+        booksMeta[nextTitle] = booksMeta[selected];
+        delete booksMeta[selected];
+      }
+      targetKey = nextTitle;
+    }
+
+    const meta = Object.assign({}, getBookMeta(targetKey), {
+      title: nextTitle,
+      author: (bookAuthor.value || '').trim(),
+      status: (bookStatus.value || '').trim() || 'Ongoing',
+      description: (bookDescription.value || '').trim(),
+      tags: (bookTags.value || '').split(',').map((value) => value.trim()).filter(Boolean)
+    });
+    booksMeta[targetKey] = meta;
+
+    const currentBookRows = getDisplaySortedChapters(index.filter((entry) => (entry.book || '').trim() === targetKey));
+    const parsedLines = parseAdminChapterLines(bookChapters.value);
+    const count = Math.min(currentBookRows.length, parsedLines.length);
+    for (let i = 0; i < count; i++) {
+      currentBookRows[i].volume = parsedLines[i].volume || currentBookRows[i].volume || 'Chapters';
+      currentBookRows[i].title = parsedLines[i].title || currentBookRows[i].title;
+      const chapterData = await dataBridge.getChapter(currentBookRows[i].id);
+      if (chapterData) {
+        await dataBridge.saveChapter(currentBookRows[i].id, Object.assign({}, chapterData, { title: currentBookRows[i].title }));
+        if (syncKey) await syncBridge.pushChapter(currentBookRows[i].id, Object.assign({}, chapterData, { title: currentBookRows[i].title }));
+      }
+    }
+
+    index.sort(sortChapters);
+    await dataBridge.saveIndex(index);
+    await dataBridge.saveBooksMeta(booksMeta);
+    if (syncKey) await syncBridge.pushLibrary();
+    loadBookOptions();
+    bookSelect.value = targetKey;
+    loadBookForm(targetKey);
+    adminSetStatus(parsedLines.length !== currentBookRows.length ? 'Saved metadata. Chapter line count differed, so only overlapping chapters were updated.' : 'Saved');
+  }
+
+  async function createBook() {
+    const title = (document.getElementById('adminQuickTitle').value || '').trim();
+    if (!title) {
+      adminSetStatus('Quick add needs a title');
+      return;
+    }
+    if (!booksMeta[title]) {
+      booksMeta[title] = {
+        title,
+        author: (document.getElementById('adminQuickAuthor').value || '').trim(),
+        status: (document.getElementById('adminQuickStatus').value || '').trim() || 'Ongoing',
+        description: (document.getElementById('adminQuickDescription').value || '').trim(),
+        tags: (document.getElementById('adminQuickTags').value || '').split(',').map((value) => value.trim()).filter(Boolean),
+        coverPath: '',
+        coverDataUrl: ''
+      };
+      await dataBridge.saveBooksMeta(booksMeta);
+      if (syncKey) await syncBridge.pushLibrary();
+    }
+    loadBookOptions();
+    bookSelect.value = title;
+    loadBookForm(title);
+    adminSetStatus('Book created');
+  }
+
+  async function deleteBook() {
+    const selected = (bookSelect.value || '').trim();
+    if (!selected) return;
+    if (!confirm('Delete this book and all chapters?')) return;
+    const doomedIds = index.filter((entry) => (entry.book || '').trim() === selected).map((entry) => entry.id);
+    index = index.filter((entry) => (entry.book || '').trim() !== selected);
+    delete booksMeta[selected];
+    for (const id of doomedIds) {
+      await dataBridge.deleteChapter(id);
+    }
+    await dataBridge.saveIndex(index);
+    await dataBridge.saveBooksMeta(booksMeta);
+    if (syncKey) await syncBridge.pushLibrary({ forceReplace:true });
+    loadBookOptions();
+    if (bookSelect.value) loadBookForm(bookSelect.value);
+    adminSetStatus('Book deleted');
+  }
+
+  document.getElementById('adminCreateBookBtn').onclick = createBook;
+  document.getElementById('adminSaveBookBtn').onclick = saveBookChanges;
+  document.getElementById('adminDeleteBookBtn').onclick = deleteBook;
+  document.getElementById('adminOpenTitleBtn').onclick = () => {
+    if (bookSelect.value) window.location.href = buildBookReaderPath(bookSelect.value);
+  };
+  document.getElementById('adminSyncBtn').onclick = async () => {
+    if (!syncKey) {
+      adminSetStatus('No sync key configured');
+      return;
+    }
+    const ok = await syncBridge.pushLibrary();
+    adminSetStatus(ok ? 'Synced' : 'Sync failed');
+  };
+  bookSelect.onchange = () => loadBookForm(bookSelect.value);
+
+  loadBookOptions();
+  if (bookSelect.value) loadBookForm(bookSelect.value);
+}
+
+initAdminPage();
