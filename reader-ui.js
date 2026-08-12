@@ -28,9 +28,7 @@ async function init(){
   applyTheme();
   normalizeChapterParamInUrl();
   const requestedChapterId = getRequestedChapterIdFromUrl();
-  const requestedChapter = requestedChapterId
-    ? index.find((entry) => entry && entry.id === requestedChapterId)
-    : null;
+  const requestedChapter = requestedChapterId ? findChapterById(requestedChapterId) : null;
   if (requestedChapter) {
     await openChapter(requestedChapter.id, true);
   } else {
@@ -76,6 +74,12 @@ function normalizeChapterId(value){
   return (value == null ? '' : String(value)).trim();
 }
 
+function findChapterById(id){
+  const wanted = normalizeChapterId(id);
+  if (!wanted) return null;
+  return index.find((entry) => normalizeChapterId(entry && entry.id) === wanted) || null;
+}
+
 function normalizeChapterParamInUrl(){
   const params = new URLSearchParams(window.location.search || '');
   if (!params.has('chapter')) return;
@@ -109,10 +113,11 @@ function getChapterUrlForEntry(entry){
 }
 
 function navigateToChapter(entry){
-  if (!entry) return;
-  const chapterId = normalizeChapterId(entry.id);
+  const targetEntry = entry && entry.id ? (findChapterById(entry.id) || entry) : null;
+  if (!targetEntry) return;
+  const chapterId = normalizeChapterId(targetEntry.id);
   if (!chapterId) return;
-  const targetUrl = getChapterUrlForEntry(entry);
+  const targetUrl = getChapterUrlForEntry(targetEntry);
   if (targetUrl) {
     const currentUrl = window.location.pathname + window.location.search;
     if (currentUrl !== targetUrl) {
@@ -1677,8 +1682,9 @@ function renderSidebar(){
 }
 
 async function openChapter(id, resume){
-  if (!id) return;
-  const target = index.find((entry) => entry.id === id);
+  const normalizedId = normalizeChapterId(id);
+  if (!normalizedId) return;
+  const target = findChapterById(normalizedId);
   if (!target) {
     console.warn('Tried to open missing chapter', id);
     return;
