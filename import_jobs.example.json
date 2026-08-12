@@ -1,0 +1,26 @@
+{
+  "syncKey": "my-library",
+  "jobs": [
+    {
+      "name": "LOM V2",
+      "book": "Lord Of Mysteries",
+      "volume": "Volume 2",
+      "inputDir": "C:\\path\\to\\Lord of Mysteries\\v2",
+      "recursive": false
+    },
+    {
+      "name": "LOM V3",
+      "book": "Lord Of Mysteries",
+      "volume": "Volume 3",
+      "inputDir": "C:\\path\\to\\Lord of Mysteries\\v3",
+      "recursive": false
+    },
+    {
+      "name": "Book2 V1",
+      "book": "Book Two Name",
+      "volume": "Volume 1",
+      "inputDir": "C:\\path\\to\\Book2\\v1",
+      "recursive": false
+    }
+  ]
+}
