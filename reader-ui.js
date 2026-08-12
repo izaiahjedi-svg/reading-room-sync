@@ -669,8 +669,16 @@ function render(){
     view._cleanupScroll = null;
   }
   renderTopbar();
-  if (view.mode === 'library') renderLibrary();
-  else renderReader();
+  if (view.mode === 'library') {
+    renderLibrary();
+  } else {
+    Promise.resolve(renderReader()).catch((error) => {
+      console.error('Reader render failed', error);
+      view.mode = 'library';
+      renderTopbar();
+      renderLibrary();
+    });
+  }
   applyReaderChromeState();
 }
 
@@ -1247,7 +1255,11 @@ function renderTitlePage(wrap, currentBook, currentItems){
           <span class="title-chapter-name ${pct >= 98 ? 'chapter-done' : ''}">${esc(entry.title)}</span>
           <span class="title-chapter-meta">${pct}%</span>
         </button>`;
-      item.querySelector('button').onclick = () => openChapter(entry.id, false);
+      item.querySelector('button').onclick = (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        openChapter(entry.id, false);
+      };
       chapterList.appendChild(item);
     });
   }
@@ -1596,9 +1608,16 @@ function renderSidebar(){
 }
 
 async function openChapter(id, resume){
+  if (!id) return;
+  const target = index.find((entry) => entry.id === id);
+  if (!target) {
+    console.warn('Tried to open missing chapter', id);
+    return;
+  }
   view.mode = 'reader';
-  view.chapterId = id;
+  view.chapterId = target.id;
   view.resume = !!resume;
+  view.bookFilter = (target.book || '').trim();
   if (!isMobileViewport()) view.mobileChromeCollapsed = false;
   view.sidebarOpen = false;
   render();
@@ -1824,6 +1843,7 @@ async function renderReader(){
 
   let pendingScrollPct = null;
   let pendingScrollTimer = null;
+  const readerProgressPill = document.getElementById('readerProgressPill');
   async function flushProgress(){
     if (pendingScrollTimer) {
       clearTimeout(pendingScrollTimer);
@@ -1843,7 +1863,7 @@ async function renderReader(){
   }
   function onScroll(){
     const p = computePct();
-    ribbon.textContent = Math.round(p) + '%';
+    if (readerProgressPill) readerProgressPill.textContent = Math.round(p) + '%';
     pendingScrollPct = p;
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
