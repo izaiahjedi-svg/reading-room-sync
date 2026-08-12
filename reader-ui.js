@@ -1206,7 +1206,7 @@ function renderTitlePage(wrap, currentBook, currentItems){
       <div class="title-chapter-head">
         <h2>Chapters</h2>
         <div class="title-volume-controls">
-          <input id="titleVolumeSearch" class="title-volume-search" placeholder="Search volume" />
+          <input id="titleChapterSearch" class="title-volume-search" placeholder="Search chapter" />
           <select id="titleVolumeSelect" class="title-volume-select" aria-label="Volume filter"></select>
         </div>
       </div>
@@ -1222,19 +1222,19 @@ function renderTitlePage(wrap, currentBook, currentItems){
   const resumeBtn = layout.querySelector('#titleResumeBtn');
   if (resumeBtn && lastReadInBook) resumeBtn.onclick = () => openChapter(lastReadInBook.id, true);
 
-  const volumeSearch = layout.querySelector('#titleVolumeSearch');
+  const chapterSearch = layout.querySelector('#titleChapterSearch');
   const volumeSelect = layout.querySelector('#titleVolumeSelect');
   const chapterList = layout.querySelector('#titleChapterList');
 
-  function getFilteredVolumes(){
-    const term = (volumeSearch.value || '').trim().toLowerCase();
-    if (!term) return volumes;
-    return volumes.filter((volume) => volume.toLowerCase().includes(term));
-  }
-
   function renderScopedChapters(selectedVolume){
     chapterList.innerHTML = '';
-    const visible = currentItems.filter((entry) => ((entry.volume || '').trim() || 'Chapters') === selectedVolume);
+    const term = (chapterSearch.value || '').trim().toLowerCase();
+    const visible = currentItems.filter((entry) => {
+      const sameVolume = ((entry.volume || '').trim() || 'Chapters') === selectedVolume;
+      if (!sameVolume) return false;
+      if (!term) return true;
+      return (entry.title || '').toLowerCase().includes(term);
+    });
     if (!visible.length) {
       chapterList.innerHTML = '<li class="title-empty-row">No chapters for this volume filter.</li>';
       return;
@@ -1243,32 +1243,23 @@ function renderTitlePage(wrap, currentBook, currentItems){
   }
 
   function renderVolumeOptions(){
-    const filteredVolumes = getFilteredVolumes();
     const selectedValue = volumeSelect.value;
     volumeSelect.innerHTML = '';
-    if (!filteredVolumes.length) {
-      const none = document.createElement('option');
-      none.value = '';
-      none.textContent = 'No matching volume';
-      volumeSelect.appendChild(none);
-      renderScopedChapters('');
-      return;
-    }
-    filteredVolumes.forEach((volume) => {
+    volumes.forEach((volume) => {
       const option = document.createElement('option');
       option.value = volume;
       option.textContent = volume;
       volumeSelect.appendChild(option);
     });
-    if (filteredVolumes.includes(selectedValue)) {
+    if (volumes.includes(selectedValue)) {
       volumeSelect.value = selectedValue;
     }
-    const activeVolume = filteredVolumes.includes(volumeSelect.value) ? volumeSelect.value : filteredVolumes[0];
+    const activeVolume = volumes.includes(volumeSelect.value) ? volumeSelect.value : volumes[0];
     volumeSelect.value = activeVolume;
     renderScopedChapters(activeVolume);
   }
 
-  volumeSearch.addEventListener('input', renderVolumeOptions);
+  chapterSearch.addEventListener('input', () => renderScopedChapters(volumeSelect.value));
   volumeSelect.addEventListener('change', () => renderScopedChapters(volumeSelect.value));
   renderVolumeOptions();
 }

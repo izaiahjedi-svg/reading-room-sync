@@ -934,6 +934,13 @@ body.reader-mobile-chrome-collapsed .reader-nav{
   margin-top:10px;
 }
 
+.admin-cover-actions{
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
+  margin-top:8px;
+}
+
 @media (max-width:920px){
   .title-layout,
   .admin-layout{

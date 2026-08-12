@@ -24,9 +24,32 @@ async function initAdminPage(){
   renderAdminPage();
 }
 
+let pendingAdminCoverDataUrl = null;
+
 function adminSetStatus(message) {
   const status = document.getElementById('adminSaveState');
   if (status) status.textContent = message;
+}
+
+function readAdminFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error || new Error('File read failed'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function renderAdminCoverPreview(bookName) {
+  const wrap = document.getElementById('adminCoverPreviewWrap');
+  if (!wrap) return;
+  const meta = getBookMeta(bookName);
+  const cover = pendingAdminCoverDataUrl !== null ? pendingAdminCoverDataUrl : resolveCoverSrc(bookName, meta);
+  if (cover) {
+    wrap.innerHTML = `<img class="cover-preview" src="${cover}" alt="Book cover preview" />`;
+  } else {
+    wrap.innerHTML = '<div class="cover-placeholder">No cover yet</div>';
+  }
 }
 
 function parseAdminChapterLines(text) {
@@ -78,6 +101,7 @@ function renderAdminPage() {
             <div class="admin-field"><label for="adminBookTitle">Title</label><input id="adminBookTitle" /></div>
             <div class="admin-field"><label for="adminBookAuthor">Author</label><input id="adminBookAuthor" /></div>
             <div class="admin-field"><label for="adminBookStatus">Status</label><input id="adminBookStatus" /></div>
+            <div class="admin-field admin-wide"><label>Cover</label><div id="adminCoverPreviewWrap"></div><div class="admin-cover-actions"><button id="adminUploadCoverBtn" type="button">Upload cover</button><button id="adminRemoveCoverBtn" type="button">Remove cover</button></div></div>
             <div class="admin-field admin-wide"><label for="adminBookTags">Tags</label><input id="adminBookTags" placeholder="Action, Fantasy" /></div>
             <div class="admin-field admin-wide"><label for="adminBookDescription">Description</label><textarea id="adminBookDescription" class="admin-textarea"></textarea></div>
             <div class="admin-field admin-wide"><label for="adminBookChapters">Volumes + Chapter Titles</label><textarea id="adminBookChapters" class="admin-textarea admin-textarea-tall"></textarea><p class="admin-help">Use one line per chapter. Format: Volume | Chapter Title</p></div>
@@ -99,6 +123,9 @@ function renderAdminPage() {
   const bookTags = document.getElementById('adminBookTags');
   const bookDescription = document.getElementById('adminBookDescription');
   const bookChapters = document.getElementById('adminBookChapters');
+  const coverInput = document.getElementById('adminCoverInput');
+  const uploadCoverBtn = document.getElementById('adminUploadCoverBtn');
+  const removeCoverBtn = document.getElementById('adminRemoveCoverBtn');
 
   function loadBookOptions() {
     const books = getAllBookNames();
@@ -113,6 +140,7 @@ function renderAdminPage() {
   }
 
   function loadBookForm(bookName) {
+    pendingAdminCoverDataUrl = null;
     const meta = getBookMeta(bookName);
     bookTitle.value = meta.title || '';
     bookAuthor.value = meta.author || '';
@@ -120,6 +148,7 @@ function renderAdminPage() {
     bookTags.value = (meta.tags || []).join(', ');
     bookDescription.value = meta.description || '';
     bookChapters.value = formatAdminChapterLines(bookName);
+    renderAdminCoverPreview(bookName);
   }
 
   async function saveBookChanges() {
@@ -150,6 +179,24 @@ function renderAdminPage() {
       description: (bookDescription.value || '').trim(),
       tags: (bookTags.value || '').split(',').map((value) => value.trim()).filter(Boolean)
     });
+    if (pendingAdminCoverDataUrl !== null) {
+      if (pendingAdminCoverDataUrl === '') {
+        meta.coverDataUrl = '';
+        meta.coverPath = '';
+      } else if (syncKey) {
+        const uploaded = await uploadCoverToServer(targetKey, pendingAdminCoverDataUrl);
+        if (uploaded.ok && uploaded.coverPath) {
+          meta.coverPath = uploaded.coverPath;
+          meta.coverDataUrl = '';
+        } else {
+          meta.coverDataUrl = pendingAdminCoverDataUrl;
+          meta.coverPath = '';
+        }
+      } else {
+        meta.coverDataUrl = pendingAdminCoverDataUrl;
+        meta.coverPath = '';
+      }
+    }
     booksMeta[targetKey] = meta;
 
     const currentBookRows = getDisplaySortedChapters(index.filter((entry) => (entry.book || '').trim() === targetKey));
@@ -221,6 +268,24 @@ function renderAdminPage() {
   document.getElementById('adminCreateBookBtn').onclick = createBook;
   document.getElementById('adminSaveBookBtn').onclick = saveBookChanges;
   document.getElementById('adminDeleteBookBtn').onclick = deleteBook;
+  uploadCoverBtn.onclick = () => coverInput.click();
+  removeCoverBtn.onclick = () => {
+    pendingAdminCoverDataUrl = '';
+    renderAdminCoverPreview(bookSelect.value);
+  };
+  coverInput.onchange = async (event) => {
+    const file = event.target.files && event.target.files[0];
+    if (!file) return;
+    try {
+      pendingAdminCoverDataUrl = await readAdminFileAsDataUrl(file);
+      renderAdminCoverPreview(bookSelect.value);
+      adminSetStatus('Cover ready to save');
+    } catch (error) {
+      adminSetStatus('Cover read failed');
+    } finally {
+      coverInput.value = '';
+    }
+  };
   document.getElementById('adminOpenTitleBtn').onclick = () => {
     if (bookSelect.value) window.location.href = buildBookReaderPath(bookSelect.value);
   };
