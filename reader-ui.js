@@ -744,8 +744,8 @@ function render(){
     Promise.resolve(renderReader()).catch((error) => {
       console.error('Reader render failed', error);
       view.mode = 'library';
-      renderTopbar();
-      renderLibrary();
+      view.chapterId = null;
+      render();
     });
   }
   applyReaderChromeState();
