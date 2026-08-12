@@ -539,6 +539,22 @@ importInput.addEventListener('change', async (e) => {
 
 function renderTopbar(){
   topbarActions.innerHTML = '';
+  const isLibraryMode = view.mode === 'library';
+  const isBookRoute = !!routeBookSlug && isLibraryMode;
+  const searchInput = document.createElement('input');
+  searchInput.className = 'topbar-search';
+  searchInput.type = 'search';
+  searchInput.value = view.search || '';
+  searchInput.placeholder = isBookRoute ? 'Search this title' : 'Search title, genre, or author';
+  searchInput.oninput = (e) => {
+    view.search = e.target.value;
+    if (isBookRoute) {
+      const list = document.getElementById('titleChapterList');
+      if (list) renderLibrary();
+      return;
+    }
+  };
+
   const profileSwitcher = document.createElement('div');
   profileSwitcher.className = 'profile-switcher';
   Object.entries(profiles).forEach(([id, profile]) => {
@@ -552,14 +568,15 @@ function renderTopbar(){
 
   if (view.mode === 'library'){
     if (routeBookSlug) {
-      brandTitle.textContent = '← All Books';
+      brandTitle.textContent = 'READING ROOM';
       brandTitle.style.cursor = 'pointer';
       brandTitle.onclick = () => { window.location.href = getMainLibraryPath(); };
     } else {
-      brandTitle.textContent = 'Reading Room';
+      brandTitle.textContent = 'READING ROOM';
       brandTitle.style.cursor = '';
       brandTitle.onclick = null;
     }
+    topbarActions.appendChild(searchInput);
     const addBtn = document.createElement('button');
     addBtn.className = 'primary';
     addBtn.textContent = '+ Add chapter';
@@ -604,12 +621,16 @@ function renderTopbar(){
     syncStatusChip.disabled = true;
     syncStatusChip.textContent = getSyncStatusText();
     syncStatusChip.title = syncStatus.message || 'Sync status';
-    if (routeBookSlug) topbarActions.append(profileSwitcher, syncStatusChip, themeBtn, adminBtn, syncBtn, addBtn);
-    else topbarActions.append(profileSwitcher, syncStatusChip, themeBtn, debugBtn, adminBtn, syncBtn, addBtn);
+    const actionGroup = document.createElement('div');
+    actionGroup.className = 'topbar-utility-group';
+    if (routeBookSlug) actionGroup.append(syncStatusChip, themeBtn, adminBtn, syncBtn, addBtn);
+    else actionGroup.append(syncStatusChip, themeBtn, debugBtn, adminBtn, syncBtn, addBtn);
+    topbarActions.append(profileSwitcher, actionGroup);
   } else {
-    brandTitle.textContent = routeBookSlug ? '← Book Page' : '← Library';
+    brandTitle.textContent = routeBookSlug ? 'READING ROOM' : 'READING ROOM';
     brandTitle.style.cursor = 'pointer';
     brandTitle.onclick = returnToLibrary;
+    topbarActions.appendChild(searchInput);
     if (routeBookSlug){
       const booksBtn = document.createElement('button');
       booksBtn.className = 'subtle';
@@ -633,7 +654,11 @@ function renderTopbar(){
     syncStatusChip.disabled = true;
     syncStatusChip.textContent = getSyncStatusText();
     syncStatusChip.title = syncStatus.message || 'Sync status';
-    topbarActions.append(profileSwitcher, syncStatusChip, listBtn, settingsBtn);
+    const actionGroup = document.createElement('div');
+    actionGroup.className = 'topbar-utility-group';
+    if (routeBookSlug) actionGroup.append(booksBtn, syncStatusChip, listBtn, settingsBtn);
+    else actionGroup.append(syncStatusChip, listBtn, settingsBtn);
+    topbarActions.append(profileSwitcher, actionGroup);
   }
 }
 
@@ -704,6 +729,9 @@ function renderBookGrid(host, allItems, options){
     metaWrap.className = 'book-meta';
     const bookPath = buildBookReaderPath(bookName);
     const isCurrentBookRoute = !!routeBookSlug && routeBookSlug === slugifyBookName(bookName);
+    const openBook = () => {
+      if (!isCurrentBookRoute) window.location.href = bookPath;
+    };
     metaWrap.innerHTML = `
       <div class="book-title">${esc(getBookLabel(bookName))}</div>
       <div class="book-sub">${chaptersInBook.length} chapter${chaptersInBook.length === 1 ? '' : 's'} • Updated ${esc(lastUpdated)}</div>
@@ -716,12 +744,14 @@ function renderBookGrid(host, allItems, options){
     const openBtn = metaWrap.querySelector('.book-open-btn');
     const manageBtn = metaWrap.querySelector('.book-manage-btn');
     if (openBtn) {
-      openBtn.onclick = () => {
-        if (!isCurrentBookRoute) window.location.href = bookPath;
-      };
+      openBtn.onclick = openBook;
       if (isCurrentBookRoute) openBtn.disabled = true;
     }
     if (manageBtn) manageBtn.onclick = () => openBookManager(bookName);
+    if (!showActions) {
+      card.style.cursor = isCurrentBookRoute ? 'default' : 'pointer';
+      card.onclick = openBook;
+    }
     grid.appendChild(card);
   });
   host.appendChild(grid);
