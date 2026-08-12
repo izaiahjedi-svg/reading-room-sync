@@ -26,20 +26,9 @@ async function init(){
   if (routeBookSlug) view.booksCollapsed = true;
   setSyncKey(getSyncKeyFromUrl() || getStoredSyncKey());
   applyTheme();
-  normalizeChapterParamInUrl();
+  clearChapterParamFromUrl();
   renderTopbar();
   render();
-  const requestedChapterId = getRequestedChapterIdFromUrl();
-  const requestedChapter = requestedChapterId ? findChapterById(requestedChapterId) : null;
-  if (requestedChapter) {
-    try {
-      await openChapter(requestedChapter.id, true);
-    } catch (e) {
-      console.warn('Initial chapter open failed', e);
-      clearChapterParamFromUrl();
-      returnToLibrary();
-    }
-  }
 
   persistProfileState().catch((e) => {
     console.warn('Initial profile state save failed', e);
@@ -1695,6 +1684,7 @@ async function openChapter(id, resume){
   view.chapterId = target.id;
   view.resume = !!resume;
   view.bookFilter = (target.book || '').trim();
+  clearChapterParamFromUrl();
   if (!isMobileViewport()) view.mobileChromeCollapsed = false;
   view.sidebarOpen = false;
   renderTopbar();
@@ -1702,13 +1692,6 @@ async function openChapter(id, resume){
   main.innerHTML = '<div style="padding:40px;color:var(--ink-soft);">Loading…</div>';
   try {
     await renderReader();
-    const targetUrl = getChapterUrlForEntry(target);
-    if (targetUrl) {
-      const currentUrl = window.location.pathname + window.location.search;
-      if (currentUrl !== targetUrl) {
-        window.history.replaceState(null, '', targetUrl);
-      }
-    }
     document.body.classList.add('reader-mode-v2');
     applyReaderChromeState();
   } catch (error) {
