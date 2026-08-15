@@ -290,7 +290,6 @@ function renderAdminPage() {
       </section>
     </div>`;
 
-  const bookSelect = document.getElementById('adminBookSelect');
   const bookTitle = document.getElementById('adminBookTitle');
   const bookAuthor = document.getElementById('adminBookAuthor');
   const bookStatus = document.getElementById('adminBookStatus');
