@@ -1956,7 +1956,8 @@ function applyReaderStyles(el){
 
 function buildReaderSettingsPanel(){
   const fontOptions = FONT_OPTIONS.map((option) => {
-    return `<option value="${esc(option.id || option.label)}" data-font-family="${esc(option.value)}">${esc(option.label)}</option>`;
+    const safeFontFamily = String(option.value || '').replace(/"/g, '&quot;');
+    return `<option value="${esc(option.id || option.label)}" data-font-family="${safeFontFamily}">${esc(option.label)}</option>`;
   }).join('');
   return `
     <div class="reader-settings-card">
