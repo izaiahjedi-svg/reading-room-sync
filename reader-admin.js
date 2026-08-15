@@ -223,20 +223,6 @@ function renderAdminPage() {
           <button class="primary" id="adminCreateBookBtn" type="button">Add Book</button>
         </aside>
 
-        <aside class="admin-panel">
-          <h3>Add Chapters</h3>
-          <div class="admin-field"><label for="adminUploadVolumeSelect">Volume</label><select id="adminUploadVolumeSelect"></select></div>
-          <div class="admin-field"><label for="adminUploadVolumeInput">Or custom volume</label><input id="adminUploadVolumeInput" placeholder="e.g., Volume 3" /></div>
-          <div class="admin-field"><label>Selected book</label><div class="admin-inline-value">${esc((() => {
-            const select = document.getElementById('adminBookSelect');
-            return select ? (select.value || 'No book selected') : 'No book selected';
-          })())}</div></div>
-          <div class="admin-action-row">
-            <button id="adminAddFilesBtn" type="button">Choose files</button>
-            <button id="adminAddFolderBtn" type="button">Choose folder</button>
-          </div>
-        </aside>
-
         <section class="admin-panel admin-panel-wide">
           <div class="home-section-head">
             <h2>Edit Book</h2>
@@ -250,7 +236,21 @@ function renderAdminPage() {
             <div class="admin-field admin-wide"><label>Cover</label><div id="adminCoverPreviewWrap"></div><div class="admin-cover-actions"><button id="adminUploadCoverBtn" type="button">Upload cover</button><button id="adminRemoveCoverBtn" type="button">Remove cover</button></div></div>
             <div class="admin-field admin-wide"><label for="adminBookTags">Tags</label><input id="adminBookTags" placeholder="Action, Fantasy" /></div>
             <div class="admin-field admin-wide"><label for="adminBookDescription">Description</label><textarea id="adminBookDescription" class="admin-textarea"></textarea></div>
+            <div class="admin-field admin-wide"><label for="adminUploadVolumeSelect">Upload to Volume</label><select id="adminUploadVolumeSelect"></select></div>
+            <div class="admin-field admin-wide"><label for="adminUploadVolumeInput">Or custom volume</label><input id="adminUploadVolumeInput" placeholder="e.g., Volume 3" /></div>
+            <div class="admin-field admin-wide"><label>Selected book</label><div class="admin-inline-value">${esc((() => {
+              const select = document.getElementById('adminBookSelect');
+              return select ? (select.value || 'No book selected') : 'No book selected';
+            })())}</div></div>
             <div class="admin-field admin-wide"><label for="adminBookChapters">Volumes + Chapter Titles</label><textarea id="adminBookChapters" class="admin-textarea admin-textarea-tall"></textarea><p class="admin-help">Use one line per chapter. Format: Volume | Chapter Title</p></div>
+            <div class="admin-field admin-wide">
+              <label>Upload chapters</label>
+              <div class="admin-action-row">
+                <button id="adminAddFilesBtn" type="button">Choose files</button>
+                <button id="adminAddFolderBtn" type="button">Choose folder</button>
+              </div>
+              <div id="adminUploadStatus" class="admin-upload-status">Idle</div>
+            </div>
           </div>
           <div class="admin-action-row">
             <button class="primary" id="adminSaveBookBtn" type="button">Save Changes</button>
@@ -317,6 +317,7 @@ function renderAdminPage() {
   const removeCoverBtn = document.getElementById('adminRemoveCoverBtn');
   const adminUploadVolumeInput = document.getElementById('adminUploadVolumeInput');
   const adminUploadVolumeSelect = document.getElementById('adminUploadVolumeSelect');
+  const adminUploadStatus = document.getElementById('adminUploadStatus');
 
   function updateAdminVolumeOptions(bookName) {
     if (!adminUploadVolumeSelect) return;
@@ -484,15 +485,18 @@ function renderAdminPage() {
     const selectedBook = (bookSelect.value || '').trim();
     if (!selectedBook) {
       adminSetStatus('Select a book first');
+      if (adminUploadStatus) adminUploadStatus.textContent = 'Select a book first';
       return;
     }
     if (!fileInput || !folderInput) {
       adminSetStatus('Upload inputs are missing from this admin page');
+      if (adminUploadStatus) adminUploadStatus.textContent = 'Upload inputs missing';
       return;
     }
     const selectedVolume = (adminUploadVolumeInput && adminUploadVolumeInput.value ? adminUploadVolumeInput.value : adminUploadVolumeSelect && adminUploadVolumeSelect.value ? adminUploadVolumeSelect.value : '').trim();
     pendingUploadBook = selectedBook;
     pendingUploadVolume = selectedVolume || null;
+    if (adminUploadStatus) adminUploadStatus.textContent = 'Uploading chapters…';
     if (useFolder) folderInput.click();
     else fileInput.click();
   }

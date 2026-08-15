@@ -254,7 +254,8 @@ async function handleUpload(fileList, inputEl){
   const failed = [];
   let addedCount = 0;
   let remoteChapterFailed = 0;
-  const progressLabel = view.mode === 'library' ? showUploadProgress(files.length) : null;
+  const progressLabel = showUploadProgress(files.length);
+  const adminUploadStatus = document.getElementById('adminUploadStatus');
 
   for (let i=0; i<files.length; i++){
     const file = files[i];
@@ -299,6 +300,9 @@ async function handleUpload(fileList, inputEl){
     }
   }
   if (progressLabel) progressLabel(null);
+  if (adminUploadStatus) {
+    adminUploadStatus.textContent = failed.length ? ('Uploaded ' + addedCount + ' of ' + files.length + ' chapter(s)') : ('Uploaded ' + addedCount + ' chapter(s)');
+  }
   pendingChapterTitle = '';
   pendingUploadBook = '';
   pendingUploadVolume = '';
