@@ -290,6 +290,7 @@ function renderAdminPage() {
       </section>
     </div>`;
 
+  const bookSelect = document.getElementById('adminBookSelect');
   const bookTitle = document.getElementById('adminBookTitle');
   const bookAuthor = document.getElementById('adminBookAuthor');
   const bookStatus = document.getElementById('adminBookStatus');
@@ -477,20 +478,28 @@ function renderAdminPage() {
     else fileInput.click();
   }
 
-  document.getElementById('adminCreateBookBtn').onclick = createBook;
-  document.getElementById('adminSaveBookBtn').onclick = saveBookChanges;
-  document.getElementById('adminDeleteBookBtn').onclick = deleteBook;
-  uploadCoverBtn.onclick = () => coverInput.click();
-  removeCoverBtn.onclick = () => {
+  const createBookBtn = document.getElementById('adminCreateBookBtn');
+  const saveBookBtn = document.getElementById('adminSaveBookBtn');
+  const deleteBookBtn = document.getElementById('adminDeleteBookBtn');
+  const openTitleBtn = document.getElementById('adminOpenTitleBtn');
+  const addFilesBtn = document.getElementById('adminAddFilesBtn');
+  const addFolderBtn = document.getElementById('adminAddFolderBtn');
+  const syncBtn = document.getElementById('adminSyncBtn');
+
+  if (createBookBtn) createBookBtn.onclick = createBook;
+  if (saveBookBtn) saveBookBtn.onclick = saveBookChanges;
+  if (deleteBookBtn) deleteBookBtn.onclick = deleteBook;
+  if (uploadCoverBtn && coverInput) uploadCoverBtn.onclick = () => coverInput.click();
+  if (removeCoverBtn) removeCoverBtn.onclick = () => {
     pendingAdminCoverDataUrl = '';
-    renderAdminCoverPreview(bookSelect.value);
+    if (bookSelect) renderAdminCoverPreview(bookSelect.value);
   };
-  coverInput.onchange = async (event) => {
+  if (coverInput) coverInput.onchange = async (event) => {
     const file = event.target.files && event.target.files[0];
     if (!file) return;
     try {
       pendingAdminCoverDataUrl = await readAdminFileAsDataUrl(file);
-      renderAdminCoverPreview(bookSelect.value);
+      if (bookSelect) renderAdminCoverPreview(bookSelect.value);
       adminSetStatus('Cover ready to save');
     } catch (error) {
       adminSetStatus('Cover read failed');
@@ -498,17 +507,17 @@ function renderAdminPage() {
       coverInput.value = '';
     }
   };
-  document.getElementById('adminOpenTitleBtn').onclick = () => {
+  if (openTitleBtn && bookSelect) openTitleBtn.onclick = () => {
     if (bookSelect.value) window.location.href = buildBookReaderPath(bookSelect.value);
   };
-  document.getElementById('adminAddFilesBtn').onclick = () => beginAdminChapterUpload(false);
-  document.getElementById('adminAddFolderBtn').onclick = () => beginAdminChapterUpload(true);
-  if (adminUploadVolumeSelect) {
+  if (addFilesBtn) addFilesBtn.onclick = () => beginAdminChapterUpload(false);
+  if (addFolderBtn) addFolderBtn.onclick = () => beginAdminChapterUpload(true);
+  if (adminUploadVolumeSelect && adminUploadVolumeInput) {
     adminUploadVolumeSelect.onchange = () => {
-      if (adminUploadVolumeInput) adminUploadVolumeInput.value = adminUploadVolumeSelect.value || '';
+      adminUploadVolumeInput.value = adminUploadVolumeSelect.value || '';
     };
   }
-  document.getElementById('adminSyncBtn').onclick = async () => {
+  if (syncBtn) syncBtn.onclick = async () => {
     if (!syncKey) {
       adminSetStatus('No sync key configured');
       return;
@@ -516,7 +525,7 @@ function renderAdminPage() {
     const ok = await syncBridge.pushLibrary();
     adminSetStatus(ok ? 'Synced' : 'Sync failed');
   };
-  bookSelect.onchange = () => loadBookForm(bookSelect.value);
+  if (bookSelect) bookSelect.onchange = () => loadBookForm(bookSelect.value);
 
   loadBookOptions();
   if (bookSelect.value) loadBookForm(bookSelect.value);
