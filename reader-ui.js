@@ -250,85 +250,91 @@ function returnToLibrary(){
 async function handleUpload(fileList, inputEl){
   const files = Array.from(fileList || []).filter(f => /\.txt$/i.test(f.name));
   const adminUploadStatus = document.getElementById('adminUploadStatus');
-  if (!files.length){
-    if (adminUploadStatus) adminUploadStatus.textContent = 'No .txt chapter files were found in that selection.';
+  const targetBook = (pendingUploadBook || '').trim();
+  const targetVolume = (pendingUploadVolume || '').trim();
+
+  try {
+    if (!files.length){
+      if (adminUploadStatus) adminUploadStatus.textContent = 'No .txt chapter files were found in that selection.';
+      return;
+    }
+
+    const failed = [];
+    let addedCount = 0;
+    let remoteSyncFailed = false;
+    const progressLabel = showUploadProgress(files.length);
+    if (adminUploadStatus) adminUploadStatus.textContent = 'Reading ' + files.length + ' chapter file(s)…';
+
+    for (let i=0; i<files.length; i++){
+      const file = files[i];
+      const stageLabel = 'Saving chapter ' + (i + 1) + ' of ' + files.length + ': ' + file.name;
+      if (progressLabel) progressLabel(i+1, files.length, file.name);
+      if (adminUploadStatus) adminUploadStatus.textContent = stageLabel;
+
+      const text = await file.text();
+      const stem = file.name.replace(/\.txt$/i, '');
+      const requestedTitle = pendingChapterTitle && files.length === 1 ? pendingChapterTitle : '';
+      const title = (requestedTitle || stem).trim() || stem;
+      const detectedBook = pendingUploadBook ? null : detectBook(file);
+      const detectedVolume = pendingUploadVolume ? null : detectVolume(file);
+      const book = pendingUploadBook || detectedBook || null;
+      const volume = pendingUploadVolume || detectedVolume || null;
+      const uploadedAtUtc = toUtcIsoNow();
+      const id = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()+Math.random()));
+      const saveOk = await dataBridge.saveChapter(id, { title, content: text });
+      if (!saveOk){
+        failed.push(file.name);
+        continue;
+      }
+
+      index.push({ id, title, book, volume, addedAt: Date.now(), updatedAtUtc: uploadedAtUtc });
+      addedCount++;
+      if (files.length > 10) await new Promise(res => setTimeout(res, 120));
+    }
+
+    if (addedCount){
+      if (adminUploadStatus) adminUploadStatus.textContent = 'Updating the chapter library…';
+      index.sort(sortChapters);
+      const indexOk = await dataBridge.saveIndex(index);
+      if (!indexOk){
+        alert('Chapters were saved individually, but the library list failed to update. Try refreshing the page — your chapters should still be there — and if the list looks incomplete, add the missing ones again.');
+      }
+    }
+
+    let librarySyncOk = true;
+    if (syncKey) {
+      if (adminUploadStatus) adminUploadStatus.textContent = 'Syncing chapter(s) to your library…';
+      librarySyncOk = await syncBridge.pushLibrary();
+      remoteSyncFailed = !librarySyncOk;
+      if (!librarySyncOk) {
+        if (adminUploadStatus) adminUploadStatus.textContent = 'Sync hit a problem; retrying in the background…';
+        addSyncEvent('upload-retry', 'Upload sync incomplete; running chapter backfill retry');
+        await backfillRemoteChapters({ allowScoped:true });
+      }
+    }
+
+    if (progressLabel) progressLabel(null);
+    if (adminUploadStatus) {
+      const destination = targetBook ? (' for ' + targetBook + (targetVolume ? (' / ' + targetVolume) : '')) : '';
+      adminUploadStatus.textContent = failed.length
+        ? ('Finished: ' + addedCount + ' of ' + files.length + ' chapter(s) saved' + destination)
+        : ('Finished: ' + addedCount + ' chapter(s) saved' + destination);
+    }
+
+    render();
+
+    if (failed.length){
+      alert('Saved ' + addedCount + ' of ' + files.length + ' chapters.\n\n' +
+        'These failed to save (likely a temporary connection issue) — try adding them again:\n' +
+        failed.slice(0, 20).join('\n') + (failed.length > 20 ? '\n…and ' + (failed.length-20) + ' more' : ''));
+    } else if (syncKey && remoteSyncFailed) {
+      alert('Chapters were saved locally, but cloud sync needs a retry. The app started a background backfill pass to recover missed chapters.');
+    }
+  } finally {
+    pendingChapterTitle = '';
+    pendingUploadBook = '';
+    pendingUploadVolume = '';
     if (inputEl) inputEl.value = '';
-    return;
-  }
-
-  const failed = [];
-  let addedCount = 0;
-  let remoteSyncFailed = false;
-  const progressLabel = showUploadProgress(files.length);
-  const adminUploadStatus = document.getElementById('adminUploadStatus');
-  if (adminUploadStatus) adminUploadStatus.textContent = 'Reading ' + files.length + ' chapter file(s)…';
-
-  for (let i=0; i<files.length; i++){
-    const file = files[i];
-    const stageLabel = 'Saving chapter ' + (i + 1) + ' of ' + files.length + ': ' + file.name;
-    if (progressLabel) progressLabel(i+1, files.length, file.name);
-    if (adminUploadStatus) adminUploadStatus.textContent = stageLabel;
-
-    const text = await file.text();
-    const stem = file.name.replace(/\.txt$/i, '');
-    const requestedTitle = pendingChapterTitle && files.length === 1 ? pendingChapterTitle : '';
-    const title = (requestedTitle || stem).trim() || stem;
-    const detectedBook = pendingUploadBook ? null : detectBook(file);
-    const detectedVolume = pendingUploadVolume ? null : detectVolume(file);
-    const book = pendingUploadBook || detectedBook || null;
-    const volume = pendingUploadVolume || detectedVolume || null;
-    const uploadedAtUtc = toUtcIsoNow();
-    const id = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()+Math.random()));
-    const saveOk = await dataBridge.saveChapter(id, { title, content: text });
-    if (!saveOk){
-      failed.push(file.name);
-      continue;
-    }
-
-    index.push({ id, title, book, volume, addedAt: Date.now(), updatedAtUtc: uploadedAtUtc });
-    addedCount++;
-    if (files.length > 10) await new Promise(res => setTimeout(res, 120));
-  }
-
-  if (addedCount){
-    if (adminUploadStatus) adminUploadStatus.textContent = 'Updating the chapter library…';
-    index.sort(sortChapters);
-    const indexOk = await dataBridge.saveIndex(index);
-    if (!indexOk){
-      alert('Chapters were saved individually, but the library list failed to update. Try refreshing the page — your chapters should still be there — and if the list looks incomplete, add the missing ones again.');
-    }
-  }
-
-  let librarySyncOk = true;
-  if (syncKey) {
-    if (adminUploadStatus) adminUploadStatus.textContent = 'Syncing chapter(s) to your library…';
-    librarySyncOk = await syncBridge.pushLibrary();
-    remoteSyncFailed = !librarySyncOk;
-    if (!librarySyncOk) {
-      if (adminUploadStatus) adminUploadStatus.textContent = 'Sync hit a problem; retrying in the background…';
-      addSyncEvent('upload-retry', 'Upload sync incomplete; running chapter backfill retry');
-      await backfillRemoteChapters({ allowScoped:true });
-    }
-  }
-
-  if (progressLabel) progressLabel(null);
-  if (adminUploadStatus) {
-    adminUploadStatus.textContent = failed.length
-      ? ('Finished: ' + addedCount + ' of ' + files.length + ' chapter(s) saved')
-      : ('Finished: ' + addedCount + ' chapter(s) saved');
-  }
-  pendingChapterTitle = '';
-  pendingUploadBook = '';
-  pendingUploadVolume = '';
-  inputEl.value = '';
-  render();
-
-  if (failed.length){
-    alert('Saved ' + addedCount + ' of ' + files.length + ' chapters.\n\n' +
-      'These failed to save (likely a temporary connection issue) — try adding them again:\n' +
-      failed.slice(0, 20).join('\n') + (failed.length > 20 ? '\n…and ' + (failed.length-20) + ' more' : ''));
-  } else if (syncKey && remoteSyncFailed) {
-    alert('Chapters were saved locally, but cloud sync needs a retry. The app started a background backfill pass to recover missed chapters.');
   }
 }
 
