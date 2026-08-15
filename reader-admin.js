@@ -151,6 +151,8 @@ function collectAdminStats(){
 
 function renderAdminPage() {
   const stats = collectAdminStats();
+  const bookSelect = document.getElementById('adminBookSelect');
+  const adminUploadVolumeSelect = document.getElementById('adminUploadVolumeSelect');
   const profileRows = stats.profileRows.map((profile) => `
     <tr>
       <td>${esc(profile.name)}</td>
@@ -289,7 +291,6 @@ function renderAdminPage() {
       </section>
     </div>`;
 
-  const bookSelect = document.getElementById('adminBookSelect');
   const bookTitle = document.getElementById('adminBookTitle');
   const bookAuthor = document.getElementById('adminBookAuthor');
   const bookStatus = document.getElementById('adminBookStatus');
