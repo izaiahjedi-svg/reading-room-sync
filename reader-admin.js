@@ -496,7 +496,7 @@ function renderAdminPage() {
     const selectedVolume = (adminUploadVolumeInput && adminUploadVolumeInput.value ? adminUploadVolumeInput.value : adminUploadVolumeSelect && adminUploadVolumeSelect.value ? adminUploadVolumeSelect.value : '').trim();
     pendingUploadBook = selectedBook;
     pendingUploadVolume = selectedVolume || null;
-    if (adminUploadStatus) adminUploadStatus.textContent = 'Uploading chapters…';
+    if (adminUploadStatus) adminUploadStatus.textContent = 'Preparing upload… selecting chapter files';
     if (useFolder) folderInput.click();
     else fileInput.click();
   }

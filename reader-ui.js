@@ -253,13 +253,17 @@ async function handleUpload(fileList, inputEl){
 
   const failed = [];
   let addedCount = 0;
-  let remoteChapterFailed = 0;
+  let remoteSyncFailed = false;
   const progressLabel = showUploadProgress(files.length);
   const adminUploadStatus = document.getElementById('adminUploadStatus');
+  if (adminUploadStatus) adminUploadStatus.textContent = 'Reading ' + files.length + ' chapter file(s)…';
 
   for (let i=0; i<files.length; i++){
     const file = files[i];
+    const stageLabel = 'Saving chapter ' + (i + 1) + ' of ' + files.length + ': ' + file.name;
     if (progressLabel) progressLabel(i+1, files.length, file.name);
+    if (adminUploadStatus) adminUploadStatus.textContent = stageLabel;
+
     const text = await file.text();
     const stem = file.name.replace(/\.txt$/i, '');
     const requestedTitle = pendingChapterTitle && files.length === 1 ? pendingChapterTitle : '';
@@ -275,33 +279,38 @@ async function handleUpload(fileList, inputEl){
       failed.push(file.name);
       continue;
     }
-    if (syncKey) {
-      const chapterPushed = await syncBridge.pushChapter(id, { title, content: text });
-      if (!chapterPushed) remoteChapterFailed++;
-    }
+
     index.push({ id, title, book, volume, addedAt: Date.now(), updatedAtUtc: uploadedAtUtc });
     addedCount++;
     if (files.length > 10) await new Promise(res => setTimeout(res, 120));
   }
 
   if (addedCount){
+    if (adminUploadStatus) adminUploadStatus.textContent = 'Updating the chapter library…';
     index.sort(sortChapters);
     const indexOk = await dataBridge.saveIndex(index);
     if (!indexOk){
       alert('Chapters were saved individually, but the library list failed to update. Try refreshing the page — your chapters should still be there — and if the list looks incomplete, add the missing ones again.');
     }
   }
+
   let librarySyncOk = true;
   if (syncKey) {
+    if (adminUploadStatus) adminUploadStatus.textContent = 'Syncing chapter(s) to your library…';
     librarySyncOk = await syncBridge.pushLibrary();
-    if (!librarySyncOk || remoteChapterFailed > 0) {
+    remoteSyncFailed = !librarySyncOk;
+    if (!librarySyncOk) {
+      if (adminUploadStatus) adminUploadStatus.textContent = 'Sync hit a problem; retrying in the background…';
       addSyncEvent('upload-retry', 'Upload sync incomplete; running chapter backfill retry');
       await backfillRemoteChapters({ allowScoped:true });
     }
   }
+
   if (progressLabel) progressLabel(null);
   if (adminUploadStatus) {
-    adminUploadStatus.textContent = failed.length ? ('Uploaded ' + addedCount + ' of ' + files.length + ' chapter(s)') : ('Uploaded ' + addedCount + ' chapter(s)');
+    adminUploadStatus.textContent = failed.length
+      ? ('Finished: ' + addedCount + ' of ' + files.length + ' chapter(s) saved')
+      : ('Finished: ' + addedCount + ' chapter(s) saved');
   }
   pendingChapterTitle = '';
   pendingUploadBook = '';
@@ -313,7 +322,7 @@ async function handleUpload(fileList, inputEl){
     alert('Saved ' + addedCount + ' of ' + files.length + ' chapters.\n\n' +
       'These failed to save (likely a temporary connection issue) — try adding them again:\n' +
       failed.slice(0, 20).join('\n') + (failed.length > 20 ? '\n…and ' + (failed.length-20) + ' more' : ''));
-  } else if (syncKey && (!librarySyncOk || remoteChapterFailed > 0)) {
+  } else if (syncKey && remoteSyncFailed) {
     alert('Chapters were saved locally, but cloud sync needs a retry. The app started a background backfill pass to recover missed chapters.');
   }
 }
