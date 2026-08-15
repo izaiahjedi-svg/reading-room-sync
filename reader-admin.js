@@ -151,7 +151,6 @@ function collectAdminStats(){
 
 function renderAdminPage() {
   const stats = collectAdminStats();
-  const bookSelect = document.getElementById('adminBookSelect');
   const profileRows = stats.profileRows.map((profile) => `
     <tr>
       <td>${esc(profile.name)}</td>
@@ -215,7 +214,10 @@ function renderAdminPage() {
           <h3>Add Chapters</h3>
           <div class="admin-field"><label for="adminUploadVolumeSelect">Volume</label><select id="adminUploadVolumeSelect"></select></div>
           <div class="admin-field"><label for="adminUploadVolumeInput">Or custom volume</label><input id="adminUploadVolumeInput" placeholder="e.g., Volume 3" /></div>
-          <div class="admin-field"><label>Selected book</label><div class="admin-inline-value">${esc(bookSelect ? bookSelect.value || 'No book selected' : 'No book selected')}</div></div>
+          <div class="admin-field"><label>Selected book</label><div class="admin-inline-value">${esc((() => {
+            const select = document.getElementById('adminBookSelect');
+            return select ? (select.value || 'No book selected') : 'No book selected';
+          })())}</div></div>
           <div class="admin-action-row">
             <button id="adminAddFilesBtn" type="button">Choose files</button>
             <button id="adminAddFolderBtn" type="button">Choose folder</button>
@@ -290,6 +292,7 @@ function renderAdminPage() {
       </section>
     </div>`;
 
+  const bookSelect = document.getElementById('adminBookSelect');
   const bookTitle = document.getElementById('adminBookTitle');
   const bookAuthor = document.getElementById('adminBookAuthor');
   const bookStatus = document.getElementById('adminBookStatus');
