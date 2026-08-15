@@ -707,6 +707,17 @@ function renderBookGrid(host, allItems, options){
   const showActions = !(options && options.showActions === false);
   const books = getAllBookNames(allItems);
   const query = (view.search || '').trim().toLowerCase();
+  const bookStats = new Map();
+  for (const entry of allItems) {
+    const bookName = (entry.book || '').trim();
+    if (!bookName) continue;
+    const stat = bookStats.get(bookName) || { count: 0, latest: 0 };
+    stat.count += 1;
+    const timestamp = getValidUtcMs(entry && entry.updatedAtUtc) || Number(entry && entry.addedAt) || 0;
+    if (timestamp > stat.latest) stat.latest = timestamp;
+    bookStats.set(bookName, stat);
+  }
+
   const visibleBooks = !query ? books : books.filter((bookName) => {
     const meta = booksMeta[bookName] || {};
     const haystack = [
@@ -733,8 +744,8 @@ function renderBookGrid(host, allItems, options){
   grid.className = 'book-grid';
 
   visibleBooks.forEach((bookName) => {
-    const chaptersInBook = allItems.filter(c => (c.book || '').trim() === bookName);
-    const lastUpdated = getBookLastUpdatedLabel(chaptersInBook);
+    const stat = bookStats.get(bookName) || { count: 0, latest: 0 };
+    const lastUpdated = stat.latest ? formatRelativeTime(stat.latest) : 'N/A';
     const meta = booksMeta[bookName] || {};
     const card = document.createElement('div');
     card.className = 'book-card';
@@ -762,7 +773,7 @@ function renderBookGrid(host, allItems, options){
     };
     metaWrap.innerHTML = `
       <div class="book-title">${esc(getBookLabel(bookName))}</div>
-      <div class="book-sub">${chaptersInBook.length} chapter${chaptersInBook.length === 1 ? '' : 's'} • Updated ${esc(lastUpdated)}</div>
+      <div class="book-sub">${stat.count} chapter${stat.count === 1 ? '' : 's'} • Updated ${esc(lastUpdated)}</div>
       ${showActions ? `<div class="book-actions">
         <button type="button" class="book-open-btn">${isCurrentBookRoute ? 'Showing' : 'Open'}</button>
         <button type="button" class="book-manage-btn">Edit</button>
@@ -1099,6 +1110,16 @@ function openBookManager(prefillBook){
 function renderHomePage(wrap){
   const progress = getProgress();
   const activeLastChapter = progress.lastChapterId ? index.find((entry) => entry.id === progress.lastChapterId) : null;
+  const bookStats = new Map();
+  for (const entry of index) {
+    const bookName = (entry.book || '').trim() || '__unassigned__';
+    const stat = bookStats.get(bookName) || { count: 0, latest: 0 };
+    stat.count += 1;
+    const timestamp = getValidUtcMs(entry && entry.updatedAtUtc) || Number(entry && entry.addedAt) || 0;
+    if (timestamp > stat.latest) stat.latest = timestamp;
+    bookStats.set(bookName, stat);
+  }
+
   const recentItems = [...index].sort((a, b) => {
     const aTime = getValidUtcMs(a && a.updatedAtUtc) || Number(a && a.addedAt) || 0;
     const bTime = getValidUtcMs(b && b.updatedAtUtc) || Number(b && b.addedAt) || 0;
@@ -1165,7 +1186,8 @@ function renderHomePage(wrap){
   const latestGrid = document.createElement('div');
   latestGrid.className = 'home-card-grid';
   latestByBook.slice(0, 6).forEach((entry) => {
-    const bookChapters = index.filter((item) => (item.book || '').trim() === (entry.book || '').trim());
+    const bookKey = (entry.book || '').trim() || '__unassigned__';
+    const stat = bookStats.get(bookKey) || { count: 0, latest: 0 };
     const coverSrc = resolveCoverSrc(entry.book, getBookMeta(entry.book));
     const card = document.createElement('button');
     card.type = 'button';
@@ -1174,7 +1196,7 @@ function renderHomePage(wrap){
       ${coverSrc ? `<img class="home-cover-image" src="${coverSrc}" alt="${esc(getBookLabel(entry.book || 'Unassigned'))} cover" />` : '<div class="home-cover"></div>'}
       <div class="home-card-body">
         <p class="home-card-title">${esc(getBookLabel(entry.book || 'Unassigned'))}</p>
-        <div class="home-card-meta"><span>${bookChapters.length} chapters</span><span>Updated ${esc(getBookLastUpdatedLabel(bookChapters))}</span></div>
+        <div class="home-card-meta"><span>${stat.count} chapters</span><span>Updated ${esc(stat.latest ? formatRelativeTime(stat.latest) : 'N/A')}</span></div>
       </div>`;
     card.onclick = () => {
       if (entry.book) window.location.href = buildBookReaderPath(entry.book);

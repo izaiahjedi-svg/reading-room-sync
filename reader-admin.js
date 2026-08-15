@@ -110,7 +110,8 @@ function collectAdminStats(){
   const profileRows = Object.entries(profiles).map(([profileId, profile]) => {
     const state = profileState && profileState[profileId] ? profileState[profileId] : { progress:{ lastChapterId:null, percents:{} }, settings:getDefaultProfileSettings() };
     const progress = state.progress || { lastChapterId:null, percents:{} };
-    const percentTracked = index.length ? Math.round((Object.keys(progress.percents || {}).length / index.length) * 100) : 0;
+    const chaptersRead = Object.keys(progress.percents || {}).length;
+    const percentTracked = index.length ? Math.round((chaptersRead / index.length) * 100) : 0;
     const lastChapterId = progress.lastChapterId || null;
     const lastChapter = lastChapterId ? findChapterById(lastChapterId) : null;
     const settings = state.settings || getDefaultProfileSettings();
@@ -120,6 +121,7 @@ function collectAdminStats(){
       name: profile && profile.name ? profile.name : profileId,
       lastChapter: lastChapter ? getBookLabel(lastChapter.book || '') + ' — ' + lastChapter.title : 'No recent chapter',
       lastActiveAt: lastActiveMs ? new Date(lastActiveMs).toLocaleString() : 'Never',
+      chaptersRead,
       percentTracked,
       synced: !!(settings && settings.theme),
       theme: settings.theme || 'dark',
@@ -154,7 +156,7 @@ function renderAdminPage() {
       <td>${esc(profile.name)}</td>
       <td>${esc(profile.lastActiveAt)}</td>
       <td>${esc(profile.lastChapter)}</td>
-      <td>${profile.percentTracked}%</td>
+      <td>${profile.chaptersRead}</td>
       <td>${esc(profile.theme)}</td>
       <td>${esc(profile.font.split(',')[0].replace(/['"]/g, ''))}</td>
     </tr>
@@ -243,7 +245,7 @@ function renderAdminPage() {
               <th>Profile</th>
               <th>Last Active</th>
               <th>Last Reading</th>
-              <th>Progress</th>
+              <th>Chapters Read</th>
               <th>Theme</th>
               <th>Font</th>
             </tr>
