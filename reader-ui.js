@@ -609,11 +609,7 @@ function renderTopbar(){
   searchInput.placeholder = isBookRoute ? 'Search this title' : 'Search title, genre, or author';
   searchInput.oninput = (e) => {
     view.search = e.target.value;
-    if (isBookRoute) {
-      const list = document.getElementById('titleChapterList');
-      if (list) renderLibrary();
-      return;
-    }
+    render();
   };
 
   const profileSwitcher = document.createElement('div');
@@ -710,11 +706,33 @@ function getDisplaySortedChapters(items){
 function renderBookGrid(host, allItems, options){
   const showActions = !(options && options.showActions === false);
   const books = getAllBookNames(allItems);
-  if (!books.length) return;
+  const query = (view.search || '').trim().toLowerCase();
+  const visibleBooks = !query ? books : books.filter((bookName) => {
+    const meta = booksMeta[bookName] || {};
+    const haystack = [
+      getBookLabel(bookName),
+      meta.title || '',
+      meta.author || '',
+      meta.genre || '',
+      (meta.tags || []).join(' '),
+      meta.description || ''
+    ].join(' ').toLowerCase();
+    return haystack.includes(query);
+  });
+
+  if (!visibleBooks.length) {
+    const empty = document.createElement('div');
+    empty.className = 'empty-state';
+    empty.style.margin = '0';
+    empty.innerHTML = `<div style="font-size:15px;color:var(--ink-soft);">No books match "${esc(view.search)}".</div>`;
+    host.appendChild(empty);
+    return;
+  }
+
   const grid = document.createElement('div');
   grid.className = 'book-grid';
 
-  books.forEach((bookName) => {
+  visibleBooks.forEach((bookName) => {
     const chaptersInBook = allItems.filter(c => (c.book || '').trim() === bookName);
     const lastUpdated = getBookLastUpdatedLabel(chaptersInBook);
     const meta = booksMeta[bookName] || {};
@@ -1923,15 +1941,16 @@ function applyReaderStyles(el){
   el.style.setProperty('font-family', fontFamily, 'important');
   el.style.setProperty('font-size', fontSize, 'important');
   el.style.setProperty('line-height', lineHeight, 'important');
+  el.style.setProperty('font-weight', '400', 'important');
   el.style.maxWidth = '66ch';
   el.style.margin = '0 auto';
 
-  // Keep container typography aligned with the selected reader font.
   const readerContainer = el.closest('.reader-v2');
   if (readerContainer) {
     readerContainer.style.setProperty('font-family', fontFamily, 'important');
     readerContainer.style.setProperty('font-size', fontSize, 'important');
     readerContainer.style.setProperty('line-height', lineHeight, 'important');
+    readerContainer.style.setProperty('font-weight', '400', 'important');
   }
 }
 
