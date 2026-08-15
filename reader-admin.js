@@ -486,6 +486,10 @@ function renderAdminPage() {
       adminSetStatus('Select a book first');
       return;
     }
+    if (!fileInput || !folderInput) {
+      adminSetStatus('Upload inputs are missing from this admin page');
+      return;
+    }
     const selectedVolume = (adminUploadVolumeInput && adminUploadVolumeInput.value ? adminUploadVolumeInput.value : adminUploadVolumeSelect && adminUploadVolumeSelect.value ? adminUploadVolumeSelect.value : '').trim();
     pendingUploadBook = selectedBook;
     pendingUploadVolume = selectedVolume || null;
