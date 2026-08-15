@@ -105,6 +105,14 @@ function volumeSortNum(name) {
   return m ? parseInt(m[1], 10) : null;
 }
 
+function escAttr(value) {
+  return String(value == null ? '' : value)
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
 function formatAdminChapterLines(bookName) {
   const rows = getDisplaySortedChapters(index.filter((entry) => (entry.book || '').trim() === (bookName || '').trim()));
   return rows.map((entry) => `${entry.volume || 'Chapters'} | ${entry.title}`).join('\n');
