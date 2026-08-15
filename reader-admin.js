@@ -100,6 +100,11 @@ function parseAdminChapterLines(text) {
     .filter((entry) => entry.title);
 }
 
+function volumeSortNum(name) {
+  const m = (name || '').match(/(\d{1,4})/);
+  return m ? parseInt(m[1], 10) : null;
+}
+
 function formatAdminChapterLines(bookName) {
   const rows = getDisplaySortedChapters(index.filter((entry) => (entry.book || '').trim() === (bookName || '').trim()));
   return rows.map((entry) => `${entry.volume || 'Chapters'} | ${entry.title}`).join('\n');
