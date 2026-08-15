@@ -1942,7 +1942,8 @@ function applyReaderStyles(el){
   el.style.setProperty('font-size', fontSize, 'important');
   el.style.setProperty('line-height', lineHeight, 'important');
   el.style.setProperty('font-weight', '400', 'important');
-  el.style.maxWidth = '66ch';
+  el.style.width = '100%';
+  el.style.maxWidth = '760px';
   el.style.margin = '0 auto';
 
   const readerContainer = el.closest('.reader-v2');

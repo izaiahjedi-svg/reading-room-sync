@@ -1022,7 +1022,7 @@ body.reader-mode-v2 .version-badge{
 .reader-content-v2{
   padding:34px 38px 52px;
   width:100%;
-  max-width:76ch;
+  max-width:760px;
   margin:0 auto;
   background:var(--paper-raised);
   border:1px solid var(--line);
