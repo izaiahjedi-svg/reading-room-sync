@@ -249,7 +249,12 @@ function returnToLibrary(){
 
 async function handleUpload(fileList, inputEl){
   const files = Array.from(fileList || []).filter(f => /\.txt$/i.test(f.name));
-  if (!files.length){ inputEl.value = ''; return; }
+  const adminUploadStatus = document.getElementById('adminUploadStatus');
+  if (!files.length){
+    if (adminUploadStatus) adminUploadStatus.textContent = 'No .txt chapter files were found in that selection.';
+    if (inputEl) inputEl.value = '';
+    return;
+  }
 
   const failed = [];
   let addedCount = 0;

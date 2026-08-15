@@ -497,8 +497,11 @@ function renderAdminPage() {
     pendingUploadBook = selectedBook;
     pendingUploadVolume = selectedVolume || null;
     if (adminUploadStatus) adminUploadStatus.textContent = 'Preparing upload… selecting chapter files';
-    if (useFolder) folderInput.click();
-    else fileInput.click();
+    const picker = useFolder ? folderInput : fileInput;
+    if (picker) {
+      picker.value = '';
+      picker.click();
+    }
   }
 
   const createBookBtn = document.getElementById('adminCreateBookBtn');
