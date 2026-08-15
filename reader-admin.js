@@ -24,6 +24,40 @@ async function initAdminPage(){
   renderAdminPage();
 }
 
+function normalizeChapterId(value){
+  return (value == null ? '' : String(value)).trim();
+}
+
+function findChapterById(id){
+  const wanted = normalizeChapterId(id);
+  if (!wanted) return null;
+  return index.find((entry) => normalizeChapterId(entry && entry.id) === wanted) || null;
+}
+
+function sortAdminChapters(a, b){
+  const ab = a.book || '', bb = b.book || '';
+  if (ab !== bb){
+    const an = (ab.match(/(\d{1,4})/) || [])[1];
+    const bn = (bb.match(/(\d{1,4})/) || [])[1];
+    if (an && bn && an !== bn) return Number(an) - Number(bn);
+    return ab.localeCompare(bb);
+  }
+  const av = a.volume || '', bv = b.volume || '';
+  if (av !== bv){
+    const an = (av.match(/(\d{1,4})/) || [])[1];
+    const bn = (bv.match(/(\d{1,4})/) || [])[1];
+    if (an && bn && an !== bn) return Number(an) - Number(bn);
+    return av.localeCompare(bv);
+  }
+  return (a.addedAt || 0) - (b.addedAt || 0);
+}
+
+function getDisplaySortedChapters(items){
+  const list = [...items];
+  list.sort(sortAdminChapters);
+  return list;
+}
+
 let pendingAdminCoverDataUrl = null;
 
 function adminSetStatus(message) {
