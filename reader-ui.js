@@ -263,9 +263,10 @@ async function handleUpload(fileList, inputEl){
     const stem = file.name.replace(/\.txt$/i, '');
     const requestedTitle = pendingChapterTitle && files.length === 1 ? pendingChapterTitle : '';
     const title = (requestedTitle || stem).trim() || stem;
-    const detectedBook = detectBook(file);
+    const detectedBook = pendingUploadBook ? null : detectBook(file);
+    const detectedVolume = pendingUploadVolume ? null : detectVolume(file);
     const book = pendingUploadBook || detectedBook || null;
-    const volume = detectVolume(file) || pendingUploadVolume || null;
+    const volume = pendingUploadVolume || detectedVolume || null;
     const uploadedAtUtc = toUtcIsoNow();
     const id = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()+Math.random()));
     const saveOk = await dataBridge.saveChapter(id, { title, content: text });

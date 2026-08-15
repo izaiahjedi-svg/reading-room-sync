@@ -210,6 +210,17 @@ function renderAdminPage() {
           <button class="primary" id="adminCreateBookBtn" type="button">Add Book</button>
         </aside>
 
+        <aside class="admin-panel">
+          <h3>Add Chapters</h3>
+          <div class="admin-field"><label for="adminUploadVolumeSelect">Volume</label><select id="adminUploadVolumeSelect"></select></div>
+          <div class="admin-field"><label for="adminUploadVolumeInput">Or custom volume</label><input id="adminUploadVolumeInput" placeholder="e.g., Volume 3" /></div>
+          <div class="admin-field"><label>Selected book</label><div class="admin-inline-value">${esc(bookSelect ? bookSelect.value || 'No book selected' : 'No book selected')}</div></div>
+          <div class="admin-action-row">
+            <button id="adminAddFilesBtn" type="button">Choose files</button>
+            <button id="adminAddFolderBtn" type="button">Choose folder</button>
+          </div>
+        </aside>
+
         <section class="admin-panel admin-panel-wide">
           <div class="home-section-head">
             <h2>Edit Book</h2>
@@ -288,6 +299,31 @@ function renderAdminPage() {
   const coverInput = document.getElementById('adminCoverInput');
   const uploadCoverBtn = document.getElementById('adminUploadCoverBtn');
   const removeCoverBtn = document.getElementById('adminRemoveCoverBtn');
+  const adminUploadVolumeInput = document.getElementById('adminUploadVolumeInput');
+  const adminUploadVolumeSelect = document.getElementById('adminUploadVolumeSelect');
+
+  function updateAdminVolumeOptions(bookName) {
+    if (!adminUploadVolumeSelect) return;
+    const selectedVolume = (adminUploadVolumeInput && adminUploadVolumeInput.value ? adminUploadVolumeInput.value : adminUploadVolumeSelect.value || '').trim();
+    const existingVolumeNames = [...new Set(index
+      .filter((entry) => (entry.book || '').trim() === (bookName || '').trim())
+      .map((entry) => (entry.volume || '').trim() || 'Chapters'))]
+      .sort((a, b) => {
+        const an = volumeSortNum(a), bn = volumeSortNum(b);
+        if (an != null && bn != null) return an - bn;
+        return a.localeCompare(b);
+      });
+
+    adminUploadVolumeSelect.innerHTML = '<option value="">Custom volume</option>' + existingVolumeNames.map((vol) => `<option value="${escAttr(vol)}">${esc(vol)}</option>`).join('');
+    if (selectedVolume && existingVolumeNames.includes(selectedVolume)) {
+      adminUploadVolumeSelect.value = selectedVolume;
+    } else {
+      adminUploadVolumeSelect.value = '';
+    }
+    if (adminUploadVolumeInput && !adminUploadVolumeInput.value) {
+      adminUploadVolumeInput.value = selectedVolume || '';
+    }
+  }
 
   function loadBookOptions() {
     const books = getAllBookNames();
@@ -310,6 +346,7 @@ function renderAdminPage() {
     bookTags.value = (meta.tags || []).join(', ');
     bookDescription.value = meta.description || '';
     bookChapters.value = formatAdminChapterLines(bookName);
+    updateAdminVolumeOptions(bookName);
     renderAdminCoverPreview(bookName);
   }
 
@@ -427,6 +464,19 @@ function renderAdminPage() {
     adminSetStatus('Book deleted');
   }
 
+  function beginAdminChapterUpload(useFolder) {
+    const selectedBook = (bookSelect.value || '').trim();
+    if (!selectedBook) {
+      adminSetStatus('Select a book first');
+      return;
+    }
+    const selectedVolume = (adminUploadVolumeInput && adminUploadVolumeInput.value ? adminUploadVolumeInput.value : adminUploadVolumeSelect && adminUploadVolumeSelect.value ? adminUploadVolumeSelect.value : '').trim();
+    pendingUploadBook = selectedBook;
+    pendingUploadVolume = selectedVolume || null;
+    if (useFolder) folderInput.click();
+    else fileInput.click();
+  }
+
   document.getElementById('adminCreateBookBtn').onclick = createBook;
   document.getElementById('adminSaveBookBtn').onclick = saveBookChanges;
   document.getElementById('adminDeleteBookBtn').onclick = deleteBook;
@@ -451,6 +501,13 @@ function renderAdminPage() {
   document.getElementById('adminOpenTitleBtn').onclick = () => {
     if (bookSelect.value) window.location.href = buildBookReaderPath(bookSelect.value);
   };
+  document.getElementById('adminAddFilesBtn').onclick = () => beginAdminChapterUpload(false);
+  document.getElementById('adminAddFolderBtn').onclick = () => beginAdminChapterUpload(true);
+  if (adminUploadVolumeSelect) {
+    adminUploadVolumeSelect.onchange = () => {
+      if (adminUploadVolumeInput) adminUploadVolumeInput.value = adminUploadVolumeSelect.value || '';
+    };
+  }
   document.getElementById('adminSyncBtn').onclick = async () => {
     if (!syncKey) {
       adminSetStatus('No sync key configured');
