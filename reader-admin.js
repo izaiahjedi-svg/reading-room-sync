@@ -114,10 +114,12 @@ function collectAdminStats(){
     const lastChapterId = progress.lastChapterId || null;
     const lastChapter = lastChapterId ? findChapterById(lastChapterId) : null;
     const settings = state.settings || getDefaultProfileSettings();
+    const lastActiveMs = Number(progress.lastActiveAt || 0);
     return {
       id: profileId,
       name: profile && profile.name ? profile.name : profileId,
       lastChapter: lastChapter ? getBookLabel(lastChapter.book || '') + ' — ' + lastChapter.title : 'No recent chapter',
+      lastActiveAt: lastActiveMs ? new Date(lastActiveMs).toLocaleString() : 'Never',
       percentTracked,
       synced: !!(settings && settings.theme),
       theme: settings.theme || 'dark',
@@ -150,12 +152,13 @@ function renderAdminPage() {
   const profileRows = stats.profileRows.map((profile) => `
     <tr>
       <td>${esc(profile.name)}</td>
+      <td>${esc(profile.lastActiveAt)}</td>
       <td>${esc(profile.lastChapter)}</td>
       <td>${profile.percentTracked}%</td>
       <td>${esc(profile.theme)}</td>
       <td>${esc(profile.font.split(',')[0].replace(/['"]/g, ''))}</td>
     </tr>
-  `).join('') || '<tr><td colspan="5">No profile activity yet.</td></tr>';
+  `).join('') || '<tr><td colspan="6">No profile activity yet.</td></tr>';
 
   const syncRows = stats.syncEvents.map((event) => `
     <tr>
@@ -238,6 +241,7 @@ function renderAdminPage() {
           <thead>
             <tr>
               <th>Profile</th>
+              <th>Last Active</th>
               <th>Last Reading</th>
               <th>Progress</th>
               <th>Theme</th>

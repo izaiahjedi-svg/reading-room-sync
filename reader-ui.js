@@ -1803,6 +1803,7 @@ async function renderReader(){
   resetBtn.disabled = pct <= 0;
   resetBtn.onclick = async () => {
     if (!confirm('Reset progress for this chapter?')) return;
+    progress.lastActiveAt = Date.now();
     delete progress.percents[meta.id];
     if (progress.lastChapterId === meta.id) progress.lastChapterId = null;
     await persistProfileState();
@@ -1886,6 +1887,7 @@ async function renderReader(){
     }
     if (pendingScrollPct === null || pendingScrollPct === undefined) return;
     progress.lastChapterId = meta.id;
+    progress.lastActiveAt = Date.now();
     progress.percents[meta.id] = pendingScrollPct;
     pendingScrollPct = null;
     await persistProfileState();

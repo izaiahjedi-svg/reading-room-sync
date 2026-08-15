@@ -388,13 +388,12 @@
   const FONT_OPTIONS = [
     { id:'literata', label:'Literata', value:'"Literata", Georgia, serif' },
     { id:'sora', label:'Sora', value:'"Sora", "Segoe UI", sans-serif' },
+    { id:'patrick-hand', label:'Patrick Hand', value:'"Patrick Hand", "Comic Sans MS", cursive' },
     { id:'georgia', label:'Georgia', value:'Georgia, "Times New Roman", serif' },
     { id:'palatino', label:'Palatino', value:'"Palatino Linotype", "Book Antiqua", Palatino, serif' },
-    { id:'charter', label:'Charter', value:'"Charter", "Bitstream Charter", Georgia, serif' },
     { id:'verdana-sans', label:'Verdana Sans', value:'Verdana, "Segoe UI", sans-serif' },
     { id:'system-sans', label:'System Sans', value:'"Segoe UI", Tahoma, Verdana, sans-serif' },
     { id:'monospace', label:'Monospace', value:'"SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace' },
-    { id:'patrick-hand', label:'Patrick Hand', value:'"Patrick Hand", "Comic Sans MS", cursive' },
   ];
 
   const app = document.getElementById('app');
@@ -1252,7 +1251,15 @@
     const lastChapterId = (typeof src.lastChapterId === 'string' && src.lastChapterId)
       ? src.lastChapterId
       : null;
-    return { lastChapterId, percents };
+    const lastActiveAtValue = src.lastActiveAt;
+    const lastActiveAt = (() => {
+      if (lastActiveAtValue == null || lastActiveAtValue === '') return 0;
+      const num = Number(lastActiveAtValue);
+      if (Number.isFinite(num) && num > 0) return num;
+      const parsed = Date.parse(String(lastActiveAtValue));
+      return Number.isFinite(parsed) ? parsed : 0;
+    })();
+    return { lastChapterId, lastActiveAt, percents };
   }
 
   function progressEntryCount(progress){
@@ -1285,7 +1292,8 @@
       if (remoteLastPct > localLastPct) lastChapterId = remoteProgress.lastChapterId;
     }
 
-    return { lastChapterId, percents: mergedPercents };
+    const lastActiveAt = Math.max(localProgress.lastActiveAt || 0, remoteProgress.lastActiveAt || 0);
+    return { lastChapterId, lastActiveAt, percents: mergedPercents };
   }
 
   async function loadRemoteState(profileId){
