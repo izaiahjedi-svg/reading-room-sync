@@ -71,7 +71,66 @@ function formatAdminChapterLines(bookName) {
   return rows.map((entry) => `${entry.volume || 'Chapters'} | ${entry.title}`).join('\n');
 }
 
+function collectAdminStats(){
+  const books = getAllBookNames(index);
+  const profileRows = Object.entries(profiles).map(([profileId, profile]) => {
+    const state = profileState && profileState[profileId] ? profileState[profileId] : { progress:{ lastChapterId:null, percents:{} }, settings:getDefaultProfileSettings() };
+    const progress = state.progress || { lastChapterId:null, percents:{} };
+    const percentTracked = index.length ? Math.round((Object.keys(progress.percents || {}).length / index.length) * 100) : 0;
+    const lastChapterId = progress.lastChapterId || null;
+    const lastChapter = lastChapterId ? findChapterById(lastChapterId) : null;
+    const settings = state.settings || getDefaultProfileSettings();
+    return {
+      id: profileId,
+      name: profile && profile.name ? profile.name : profileId,
+      lastChapter: lastChapter ? getBookLabel(lastChapter.book || '') + ' — ' + lastChapter.title : 'No recent chapter',
+      percentTracked,
+      synced: !!(settings && settings.theme),
+      theme: settings.theme || 'dark',
+      font: settings.font || 'Georgia, "Iowan Old Style", serif'
+    };
+  });
+
+  const totalTracked = Object.values(profileState || {}).reduce((sum, state) => {
+    const progress = state && state.progress ? state.progress : { percents:{} };
+    return sum + Object.keys(progress.percents || {}).length;
+  }, 0);
+
+  return {
+    totalBooks: books.length,
+    totalChapters: index.length,
+    totalTracked,
+    activeProfileId: activeProfileId || 'izaiah',
+    profileRows,
+    syncEvents: syncEvents.slice(0, 6),
+    syncAttempts: syncDebug.attempts,
+    syncSuccesses: syncDebug.successes,
+    syncFailures: syncDebug.failures,
+    lastReason: syncDebug.lastReason || 'n/a',
+    lastSyncAt: syncDebug.lastAt ? new Date(syncDebug.lastAt).toLocaleString() : 'n/a'
+  };
+}
+
 function renderAdminPage() {
+  const stats = collectAdminStats();
+  const profileRows = stats.profileRows.map((profile) => `
+    <tr>
+      <td>${esc(profile.name)}</td>
+      <td>${esc(profile.lastChapter)}</td>
+      <td>${profile.percentTracked}%</td>
+      <td>${esc(profile.theme)}</td>
+      <td>${esc(profile.font.split(',')[0].replace(/['"]/g, ''))}</td>
+    </tr>
+  `).join('') || '<tr><td colspan="5">No profile activity yet.</td></tr>';
+
+  const syncRows = stats.syncEvents.map((event) => `
+    <tr>
+      <td>${esc(event.kind || 'info')}</td>
+      <td>${esc(event.message || '')}</td>
+      <td>${new Date(event.at || Date.now()).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' })}</td>
+    </tr>
+  `).join('') || '<tr><td colspan="3">No sync events yet.</td></tr>';
+
   main.innerHTML = `
     <div class="admin-wrap">
       <section class="admin-intro">
@@ -79,8 +138,28 @@ function renderAdminPage() {
           <h2>Secret Admin Path</h2>
           <a class="home-subtle-link" href="/reader.html${window.location.search || ''}">Back to library</a>
         </div>
-        <p class="admin-intro-copy">This page edits real Reading Room metadata and chapter labels. It stays hidden by path only.</p>
+        <p class="admin-intro-copy">This page edits real Reading Room metadata and chapter labels. It also exposes the activity and diagnostics needed to monitor the local-first sync setup.</p>
       </section>
+
+      <section class="admin-stats-grid">
+        <div class="admin-stat-card">
+          <div class="admin-stat-label">Books</div>
+          <div class="admin-stat-value">${stats.totalBooks}</div>
+        </div>
+        <div class="admin-stat-card">
+          <div class="admin-stat-label">Chapters</div>
+          <div class="admin-stat-value">${stats.totalChapters}</div>
+        </div>
+        <div class="admin-stat-card">
+          <div class="admin-stat-label">Tracked Reads</div>
+          <div class="admin-stat-value">${stats.totalTracked}</div>
+        </div>
+        <div class="admin-stat-card">
+          <div class="admin-stat-label">Sync State</div>
+          <div class="admin-stat-value">${syncKey ? 'Live' : 'Local'}</div>
+        </div>
+      </section>
+
       <div class="admin-layout">
         <aside class="admin-panel">
           <h3>Quick Add Book</h3>
@@ -91,6 +170,7 @@ function renderAdminPage() {
           <div class="admin-field"><label for="adminQuickDescription">Description</label><textarea id="adminQuickDescription" class="admin-textarea"></textarea></div>
           <button class="primary" id="adminCreateBookBtn" type="button">Add Book</button>
         </aside>
+
         <section class="admin-panel admin-panel-wide">
           <div class="home-section-head">
             <h2>Edit Book</h2>
@@ -114,6 +194,48 @@ function renderAdminPage() {
           </div>
         </section>
       </div>
+
+      <section class="admin-panel admin-panel-wide admin-lower-panel">
+        <div class="home-section-head">
+          <h2>Profile Activity</h2>
+          <span class="home-subtle">Active profile: ${esc(stats.activeProfileId)}</span>
+        </div>
+        <table class="admin-table">
+          <thead>
+            <tr>
+              <th>Profile</th>
+              <th>Last Reading</th>
+              <th>Progress</th>
+              <th>Theme</th>
+              <th>Font</th>
+            </tr>
+          </thead>
+          <tbody>${profileRows}</tbody>
+        </table>
+      </section>
+
+      <section class="admin-panel admin-panel-wide admin-lower-panel">
+        <div class="home-section-head">
+          <h2>Debug Stats</h2>
+          <span class="home-subtle">${esc(stats.lastReason)}</span>
+        </div>
+        <div class="admin-debug-grid">
+          <div class="admin-debug-box"><span>Sync attempts</span><strong>${stats.syncAttempts}</strong></div>
+          <div class="admin-debug-box"><span>Sync successes</span><strong>${stats.syncSuccesses}</strong></div>
+          <div class="admin-debug-box"><span>Sync failures</span><strong>${stats.syncFailures}</strong></div>
+          <div class="admin-debug-box"><span>Last sync</span><strong>${esc(stats.lastSyncAt)}</strong></div>
+        </div>
+        <table class="admin-table">
+          <thead>
+            <tr>
+              <th>Kind</th>
+              <th>Message</th>
+              <th>Time</th>
+            </tr>
+          </thead>
+          <tbody>${syncRows}</tbody>
+        </table>
+      </section>
     </div>`;
 
   const bookSelect = document.getElementById('adminBookSelect');
