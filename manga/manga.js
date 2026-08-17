@@ -1,4 +1,7 @@
 const CHAPTERS_PER_PAGE = 10;
+const MANGA_THEME_KEY = 'reading-room:manga-theme';
+const MANGA_WIDTH_KEY = 'reading-room:manga-page-width';
+const THEME_OPTIONS = ['dark', 'light', 'sepia', 'graphite', 'forest'];
 
 const state = {
   view: 'home',
@@ -6,14 +9,16 @@ const state = {
   activeSeries: '',
   activeChapterKey: '',
   chapterPage: 0,
-  settingsOpen: false,
-  chapterPickerOpen: false,
   importing: false,
+  pageWidth: readStoredPageWidth(),
 };
 
 const main = document.getElementById('main');
 const topbarActions = document.getElementById('topbarActions');
 const folderInput = document.getElementById('folderInput');
+
+applyTheme(readStoredTheme());
+applyPageWidth();
 
 folderInput.addEventListener('change', async (event) => {
   const files = Array.from(event.target.files || []).filter((file) => isImage(file.name));
@@ -31,7 +36,6 @@ folderInput.addEventListener('change', async (event) => {
     state.activeSeries = '';
     state.activeChapterKey = '';
     state.chapterPage = 0;
-    state.settingsOpen = false;
     render();
   } finally {
     state.importing = false;
@@ -50,6 +54,40 @@ function naturalCompare(a, b) {
 function parseChapterSort(chapterName) {
   const num = (chapterName.match(/(\d+(?:\.\d+)?)/) || [])[1];
   return num ? Number(num) : Number.POSITIVE_INFINITY;
+}
+
+function readStoredTheme() {
+  try {
+    const saved = (window.localStorage.getItem(MANGA_THEME_KEY) || '').trim();
+    if (THEME_OPTIONS.includes(saved)) return saved;
+  } catch (e) {}
+  return 'light';
+}
+
+function storeTheme(theme) {
+  try { window.localStorage.setItem(MANGA_THEME_KEY, theme); } catch (e) {}
+}
+
+function applyTheme(theme) {
+  const nextTheme = THEME_OPTIONS.includes(theme) ? theme : 'light';
+  document.body.setAttribute('data-theme', nextTheme);
+  storeTheme(nextTheme);
+}
+
+function readStoredPageWidth() {
+  try {
+    const raw = Number(window.localStorage.getItem(MANGA_WIDTH_KEY) || '980');
+    if (Number.isFinite(raw)) return Math.max(620, Math.min(1200, Math.round(raw)));
+  } catch (e) {}
+  return 980;
+}
+
+function storePageWidth(width) {
+  try { window.localStorage.setItem(MANGA_WIDTH_KEY, String(width)); } catch (e) {}
+}
+
+function applyPageWidth() {
+  document.documentElement.style.setProperty('--manga-page-max-width', state.pageWidth + 'px');
 }
 
 async function buildLibraryFromFiles(files) {
@@ -134,8 +172,6 @@ function openSeries(seriesName) {
   state.activeSeries = seriesName;
   state.activeChapterKey = '';
   state.chapterPage = 0;
-  state.settingsOpen = false;
-  state.chapterPickerOpen = false;
   render();
 }
 
@@ -143,8 +179,6 @@ function openChapter(seriesName, chapterKey) {
   state.view = 'reader';
   state.activeSeries = seriesName;
   state.activeChapterKey = chapterKey;
-  state.settingsOpen = false;
-  state.chapterPickerOpen = false;
   render();
   window.scrollTo(0, 0);
 }
@@ -155,14 +189,23 @@ function moveChapter(direction) {
   const nextIdx = idx + direction;
   if (nextIdx < 0 || nextIdx >= chapters.length) return;
   state.activeChapterKey = chapters[nextIdx].key;
-  state.settingsOpen = false;
-  state.chapterPickerOpen = false;
   render();
   window.scrollTo(0, 0);
 }
 
 function renderTopbar() {
   topbarActions.innerHTML = '';
+
+  const themeBtn = document.createElement('button');
+  themeBtn.type = 'button';
+  themeBtn.className = 'subtle';
+  themeBtn.textContent = 'Theme';
+  themeBtn.onclick = () => {
+    const current = document.body.getAttribute('data-theme') || 'light';
+    const currentIdx = Math.max(0, THEME_OPTIONS.indexOf(current));
+    const next = THEME_OPTIONS[(currentIdx + 1) % THEME_OPTIONS.length];
+    applyTheme(next);
+  };
 
   const importBtn = document.createElement('button');
   importBtn.type = 'button';
@@ -171,55 +214,7 @@ function renderTopbar() {
   importBtn.disabled = state.importing;
   importBtn.onclick = openFolderPicker;
 
-  if (state.view === 'reader') {
-    const chapterTag = document.createElement('button');
-    chapterTag.type = 'button';
-    chapterTag.className = 'subtle';
-    chapterTag.disabled = false;
-    const chapter = getActiveChapter();
-    chapterTag.textContent = chapter ? chapter.title : 'Chapter';
-    chapterTag.onclick = () => {
-      state.chapterPickerOpen = !state.chapterPickerOpen;
-      render();
-    };
-
-    const homeBtn = document.createElement('button');
-    homeBtn.type = 'button';
-    homeBtn.className = 'subtle';
-    homeBtn.textContent = 'Home';
-    homeBtn.onclick = () => {
-      state.view = 'home';
-      state.settingsOpen = false;
-      state.chapterPickerOpen = false;
-      render();
-    };
-
-    const titleBtn = document.createElement('button');
-    titleBtn.type = 'button';
-    titleBtn.className = 'subtle';
-    titleBtn.textContent = 'Title';
-    titleBtn.onclick = () => {
-      state.view = 'title';
-      state.settingsOpen = false;
-      state.chapterPickerOpen = false;
-      render();
-    };
-
-    const settingsBtn = document.createElement('button');
-    settingsBtn.type = 'button';
-    settingsBtn.className = 'subtle';
-    settingsBtn.textContent = 'Settings';
-    settingsBtn.onclick = () => {
-      state.settingsOpen = !state.settingsOpen;
-      state.chapterPickerOpen = false;
-      render();
-    };
-
-    topbarActions.append(chapterTag, homeBtn, titleBtn, settingsBtn, importBtn);
-    return;
-  }
-
-  topbarActions.append(importBtn);
+  topbarActions.append(themeBtn, importBtn);
 }
 
 function renderMessage(text) {
@@ -248,26 +243,6 @@ function render() {
 }
 
 function renderHome() {
-  const latestBySeries = state.library
-    .map((series) => {
-      const latest = series.chapters[series.chapters.length - 1] || null;
-      return { name: series.name, count: series.chapters.length, latest };
-    })
-    .sort((a, b) => naturalCompare(a.name, b.name));
-
-  const latestCards = latestBySeries.slice(0, 6).map((entry) => {
-    const latestText = entry.latest ? entry.latest.title : 'No chapters found';
-    return [
-      '<button type="button" class="home-title-card" data-open-series="' + escapeAttr(entry.name) + '">',
-      '<div class="home-cover"></div>',
-      '<div class="home-card-body">',
-      '<p class="home-card-title">' + escapeHtml(entry.name) + '</p>',
-      '<div class="home-card-meta"><span>' + entry.count + ' chapters</span><span>Latest ' + escapeHtml(latestText) + '</span></div>',
-      '</div>',
-      '</button>'
-    ].join('');
-  }).join('');
-
   const allSeriesCards = state.library.map((series) => {
     const latest = series.chapters[series.chapters.length - 1] || null;
     return [
@@ -284,20 +259,8 @@ function renderHome() {
 
   main.innerHTML = [
     '<div class="library-wrap">',
-    '<section class="home-hero">',
-    '<div class="home-section-head"><h2>Manga Reading Room</h2><span class="home-subtle">Showing all manga titles</span></div>',
-    '<div class="home-status-grid">',
-    '<div class="home-status-card"><span class="k">Library</span><span class="v">' + state.library.length + ' titles</span></div>',
-    '<div class="home-status-card"><span class="k">Chapters</span><span class="v">' + latestBySeries.reduce((sum, row) => sum + row.count, 0) + ' total</span></div>',
-    '<div class="home-status-card"><span class="k">Format</span><span class="v">No volumes</span></div>',
-    '</div>',
-    '</section>',
     '<section class="home-section">',
-    '<div class="home-section-head"><h2>Latest Updates</h2><span class="home-subtle">Recent title activity</span></div>',
-    '<div class="home-card-grid">' + latestCards + '</div>',
-    '</section>',
-    '<section class="home-section">',
-    '<div class="home-section-head"><h2>All Manga</h2></div>',
+    '<div class="home-section-head"><h2>All Manga</h2><span class="home-subtle">No volumes • chapter-based pages</span></div>',
     '<div class="book-grid">' + allSeriesCards + '</div>',
     '</section>',
     '</div>'
@@ -396,6 +359,30 @@ function renderTitlePage() {
   });
 }
 
+function buildMangaSettingsPanel() {
+  const currentTheme = document.body.getAttribute('data-theme') || 'light';
+  const themeOptions = THEME_OPTIONS
+    .map((theme) => '<option value="' + theme + '"' + (theme === currentTheme ? ' selected' : '') + '>' + theme + '</option>')
+    .join('');
+
+  return [
+    '<div class="reader-settings-card">',
+    '<h3>Reader Settings</h3>',
+    '<div class="reader-control">',
+    '<div class="reader-control-head"><label for="mangaThemeSelect">Theme</label></div>',
+    '<select id="mangaThemeSelect">' + themeOptions + '</select>',
+    '</div>',
+    '<div class="reader-control">',
+    '<div class="reader-control-head"><label for="mangaPageWidth">Page Width</label><span id="mangaPageWidthValue">' + state.pageWidth + 'px</span></div>',
+    '<input id="mangaPageWidth" type="range" min="620" max="1200" step="10" value="' + state.pageWidth + '" />',
+    '</div>',
+    '<div class="reader-control">',
+    '<div class="manga-muted">More settings are under dev.</div>',
+    '</div>',
+    '</div>'
+  ].join('');
+}
+
 function renderReader() {
   const series = getSeries(state.activeSeries);
   const chapter = getActiveChapter();
@@ -407,67 +394,101 @@ function renderReader() {
 
   const chapters = getActiveSeriesChapters();
   const idx = chapters.findIndex((item) => item.key === chapter.key);
-  const prevDisabled = idx <= 0 ? 'disabled' : '';
-  const nextDisabled = idx >= chapters.length - 1 ? 'disabled' : '';
+  const prevMeta = idx > 0 ? chapters[idx - 1] : null;
+  const nextMeta = idx < chapters.length - 1 ? chapters[idx + 1] : null;
   const pageMarkup = chapter.pages
     .map((page) => '<img loading="lazy" decoding="async" alt="' + escapeAttr(chapter.title + ' page ' + page.name) + '" src="' + page.src + '" />')
     .join('');
 
-  const chapterPickerMarkup = (() => {
-    if (!state.chapterPickerOpen) return '';
-    const chapterOptions = chapters.map((item) => {
-      const selected = item.key === chapter.key ? ' selected' : '';
-      return '<option value="' + escapeAttr(item.key) + '"' + selected + '>' + escapeHtml(item.title) + '</option>';
-    }).join('');
-    return [
-      '<div class="manga-settings-panel" id="chapterPickerPanel">',
-      '<strong>Chapter Picker</strong>',
-      '<div class="manga-row" style="margin-top:8px;">',
-      '<select id="chapterPickerSelect">' + chapterOptions + '</select>',
-      '<button type="button" id="chapterPickerGo">Go</button>',
-      '</div>',
-      '</div>'
-    ].join('');
-  })();
-
   main.innerHTML = [
     '<div class="reader-v2">',
     '<div class="reader-v2-shell">',
-    chapterPickerMarkup,
-    state.settingsOpen ? '<div class="manga-settings-panel"><strong>Settings</strong><div class="manga-muted" style="margin-top:6px;">Under dev</div></div>' : '',
     '<article class="reader-content reader-content-v2">',
     '<div class="reader-content-head"><div class="reader-kicker">Manga Chapter</div><h1>' + escapeHtml(series.name) + ' • ' + escapeHtml(chapter.title) + '</h1></div>',
     '<div class="manga-page-stack">' + pageMarkup + '</div>',
     '</article>',
-    '<div class="reader-v2-bottom">',
-    '<div class="reader-v2-meta"><span>' + chapter.pages.length + ' page(s)</span></div>',
-    '<div class="reader-v2-nav">',
-    '<button type="button" id="prevChapter" ' + prevDisabled + '>Previous Chapter</button>',
-    '<button type="button" id="nextChapter" ' + nextDisabled + '>Next Chapter</button>',
+    '<aside class="reader-v2-rail mobile-control">',
+    '<div class="reader-chapter-inline" aria-label="Chapter controls">',
+    '<button class="reader-icon-btn reader-icon-btn-mini" id="readerPrevInline" type="button" aria-label="Previous chapter">&lt;</button>',
+    '<select id="readerChapterSelect" class="reader-chapter-select" aria-label="Choose chapter"></select>',
+    '<button class="reader-icon-btn reader-icon-btn-mini" id="readerNextInline" type="button" aria-label="Next chapter">&gt;</button>',
     '</div>',
+    '<nav class="reader-v2-icons" aria-label="Quick actions">',
+    '<button class="reader-icon-btn" id="readerHomeBtn" type="button" aria-label="Home" title="Home"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l9 8h-3v9h-5v-6H11v6H6v-9H3z"/></svg></button>',
+    '<button class="reader-icon-btn" id="readerTitleBtn" type="button" aria-label="Title page" title="Title page"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5a2 2 0 0 1 2-2h13v17H6a2 2 0 0 0-2 2V5zm3 1v11h10V6H7z"/></svg></button>',
+    '<button class="reader-icon-btn" id="readerSettingsBtn" type="button" aria-label="Settings" title="Settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.14 12.94a7.77 7.77 0 0 0 .05-.94 7.77 7.77 0 0 0-.05-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.5 7.5 0 0 0-1.63-.94l-.36-2.54a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.5.42l-.36 2.54a7.5 7.5 0 0 0-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.71 8.84a.5.5 0 0 0 .12.64l2.03 1.58a7.77 7.77 0 0 0-.05.94c0 .32.02.63.05.94L2.83 14.52a.5.5 0 0 0-.12.64l1.92 3.32a.5.5 0 0 0 .6.22l2.39-.96c.5.39 1.05.71 1.63.94l.36 2.54a.5.5 0 0 0 .5.42h3.84a.5.5 0 0 0 .5-.42l.36-2.54c.58-.23 1.13-.55 1.63-.94l2.39.96a.5.5 0 0 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58zM12 15.5A3.5 3.5 0 1 1 12 8a3.5 3.5 0 0 1 0 7.5z"/></svg></button>',
+    '</nav>',
+    '<section class="reader-settings-popup collapsed" id="readerSettingsPopup"></section>',
+    '</aside>',
     '</div>',
-    '</div>',
+    '<footer class="reader-v2-bottom mobile-control">',
+    '<div class="reader-v2-meta"><button type="button" class="reader-link-btn" id="readerFooterTitle">' + escapeHtml(series.name) + '</button><span>' + escapeHtml(chapter.title) + '</span><button type="button" class="reader-link-btn" id="readerFooterHome">Home</button></div>',
+    '<div class="reader-v2-nav"><button class="primary" id="readerPrevFooter" type="button">Previous Chapter</button><button class="primary" id="readerNextFooter" type="button">Next Chapter</button></div>',
+    '</footer>',
     '</div>'
   ].join('');
 
-  const prev = document.getElementById('prevChapter');
-  const next = document.getElementById('nextChapter');
-  if (prev) prev.addEventListener('click', () => moveChapter(-1));
-  if (next) next.addEventListener('click', () => moveChapter(1));
+  const chapterSelect = document.getElementById('readerChapterSelect');
+  chapters.forEach((entry, position) => {
+    const option = document.createElement('option');
+    option.value = entry.key;
+    option.textContent = 'Chapter ' + (position + 1);
+    if (entry.key === chapter.key) option.selected = true;
+    chapterSelect.appendChild(option);
+  });
 
-  const chapterPickerGo = document.getElementById('chapterPickerGo');
-  const chapterPickerSelect = document.getElementById('chapterPickerSelect');
-  if (chapterPickerGo && chapterPickerSelect) {
-    chapterPickerGo.addEventListener('click', () => {
-      const nextKey = (chapterPickerSelect.value || '').trim();
-      if (!nextKey || nextKey === chapter.key) {
-        state.chapterPickerOpen = false;
-        render();
-        return;
-      }
-      openChapter(series.name, nextKey);
-    });
+  const settingsPanel = document.getElementById('readerSettingsPopup');
+  settingsPanel.innerHTML = buildMangaSettingsPanel();
+
+  const themeSelect = settingsPanel.querySelector('#mangaThemeSelect');
+  const pageWidthInput = settingsPanel.querySelector('#mangaPageWidth');
+  const pageWidthValue = settingsPanel.querySelector('#mangaPageWidthValue');
+
+  themeSelect.onchange = () => applyTheme(themeSelect.value || 'light');
+  pageWidthInput.oninput = () => {
+    state.pageWidth = Math.max(620, Math.min(1200, Number(pageWidthInput.value || state.pageWidth)));
+    pageWidthValue.textContent = state.pageWidth + 'px';
+    applyPageWidth();
+    storePageWidth(state.pageWidth);
+  };
+
+  function goToChapter(targetChapter) {
+    if (!targetChapter || !targetChapter.key) return;
+    openChapter(series.name, targetChapter.key);
   }
+
+  document.getElementById('readerHomeBtn').onclick = () => {
+    state.view = 'home';
+    state.activeSeries = '';
+    render();
+  };
+  document.getElementById('readerFooterHome').onclick = () => {
+    state.view = 'home';
+    state.activeSeries = '';
+    render();
+  };
+  document.getElementById('readerTitleBtn').onclick = () => {
+    state.view = 'title';
+    render();
+  };
+  document.getElementById('readerFooterTitle').onclick = () => {
+    state.view = 'title';
+    render();
+  };
+  document.getElementById('readerPrevInline').onclick = () => goToChapter(prevMeta);
+  document.getElementById('readerNextInline').onclick = () => goToChapter(nextMeta);
+  document.getElementById('readerPrevFooter').onclick = () => goToChapter(prevMeta);
+  document.getElementById('readerNextFooter').onclick = () => goToChapter(nextMeta);
+  document.getElementById('readerPrevInline').disabled = !prevMeta;
+  document.getElementById('readerNextInline').disabled = !nextMeta;
+  document.getElementById('readerPrevFooter').disabled = !prevMeta;
+  document.getElementById('readerNextFooter').disabled = !nextMeta;
+  chapterSelect.onchange = () => openChapter(series.name, chapterSelect.value);
+
+  const settingsToggle = document.getElementById('readerSettingsBtn');
+  settingsToggle.onclick = () => {
+    settingsPanel.classList.toggle('collapsed');
+  };
 }
 
 function escapeHtml(value) {
