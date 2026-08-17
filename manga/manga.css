@@ -25,97 +25,20 @@
   color:#fff;
 }
 
-.manga-shell{
-  width:min(1120px, calc(100vw - 28px));
-  margin:18px auto 36px;
-  display:grid;
-  gap:14px;
-}
-
-.manga-panel{
-  border:1px solid var(--line);
-  background:var(--paper-raised);
-  border-radius:12px;
-  box-shadow:var(--shadow);
-  padding:14px;
-}
-
-.manga-row{
-  display:flex;
-  gap:8px;
-  align-items:center;
-  flex-wrap:wrap;
-}
-
 .manga-muted{
   color:var(--ink-soft);
   font-size:13px;
 }
 
-.manga-title{
-  margin:4px 0;
-  font-family:"Literata", Georgia, serif;
-  font-size:22px;
-}
-
-.manga-grid{
-  display:grid;
-  grid-template-columns:repeat(auto-fill, minmax(210px, 1fr));
-  gap:12px;
-}
-
-.manga-card{
-  border:1px solid var(--line);
-  border-radius:12px;
-  background:var(--paper);
-  padding:12px;
-  display:grid;
+.manga-title-pagination{
+  margin-top:12px;
+  display:flex;
   gap:8px;
-}
-
-.manga-card h3{
-  margin:0;
-  font-size:17px;
-}
-
-.manga-card p{
-  margin:0;
-  font-size:13px;
-  color:var(--ink-soft);
-}
-
-.manga-chapter-list{
-  display:grid;
-  gap:10px;
-}
-
-.manga-chapter-item{
-  display:flex;
-  justify-content:space-between;
-  align-items:center;
-  gap:10px;
-  border:1px solid var(--line);
-  border-radius:10px;
-  background:var(--paper);
-  padding:10px 12px;
-}
-
-.manga-chapter-title{
-  margin:0;
-  font-size:15px;
-}
-
-.manga-pagination{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap:10px;
   flex-wrap:wrap;
 }
 
 .manga-page-stack{
-  width:min(980px, 100%);
-  margin:0 auto;
+  margin-top:10px;
   display:grid;
   gap:10px;
 }
@@ -133,9 +56,9 @@
 .manga-settings-panel{
   border:1px dashed var(--line);
   border-radius:10px;
-  background:var(--paper);
+  background:var(--paper-raised);
   padding:12px;
-  margin-bottom:12px;
+  margin:0 0 12px;
 }
 
 .manga-settings-panel select{
@@ -148,21 +71,9 @@
   font-size:13px;
 }
 
-.manga-empty{
-  border:1px dashed var(--line);
-  border-radius:12px;
-  padding:16px;
-  color:var(--ink-soft);
-  background:var(--paper);
-}
-
 @media (max-width: 760px){
   .brand{
     align-items:flex-start;
     flex-wrap:wrap;
-  }
-  .manga-chapter-item{
-    flex-direction:column;
-    align-items:flex-start;
   }
 }

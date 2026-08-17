@@ -223,10 +223,11 @@ function renderTopbar() {
 }
 
 function renderMessage(text) {
-  main.innerHTML = '<section class="manga-shell"><div class="manga-empty">' + escapeHtml(text) + '</div></section>';
+  main.innerHTML = '<div class="library-wrap"><div class="empty-state"><div class="big">Manga Library</div><div>' + escapeHtml(text) + '</div></div></div>';
 }
 
 function render() {
+  document.body.classList.toggle('reader-mode-v2', state.view === 'reader');
   renderTopbar();
   if (!state.library.length) {
     renderMessage('Import a manga folder to start. Expected format: series/chapter-0001/001.jpg');
@@ -247,29 +248,59 @@ function render() {
 }
 
 function renderHome() {
-  const cards = state.library.map((series) => {
-    const latest = series.chapters[series.chapters.length - 1];
-    const latestText = latest ? latest.title : 'No chapters found';
+  const latestBySeries = state.library
+    .map((series) => {
+      const latest = series.chapters[series.chapters.length - 1] || null;
+      return { name: series.name, count: series.chapters.length, latest };
+    })
+    .sort((a, b) => naturalCompare(a.name, b.name));
+
+  const latestCards = latestBySeries.slice(0, 6).map((entry) => {
+    const latestText = entry.latest ? entry.latest.title : 'No chapters found';
     return [
-      '<article class="manga-card">',
-      '<h3>' + escapeHtml(series.name) + '</h3>',
-      '<p>' + series.chapters.length + ' chapter(s)</p>',
-      '<p>Latest: ' + escapeHtml(latestText) + '</p>',
-      '<div class="manga-row">',
-      '<button type="button" data-open-series="' + escapeAttr(series.name) + '">Open title page</button>',
+      '<button type="button" class="home-title-card" data-open-series="' + escapeAttr(entry.name) + '">',
+      '<div class="home-cover"></div>',
+      '<div class="home-card-body">',
+      '<p class="home-card-title">' + escapeHtml(entry.name) + '</p>',
+      '<div class="home-card-meta"><span>' + entry.count + ' chapters</span><span>Latest ' + escapeHtml(latestText) + '</span></div>',
       '</div>',
-      '</article>',
+      '</button>'
+    ].join('');
+  }).join('');
+
+  const allSeriesCards = state.library.map((series) => {
+    const latest = series.chapters[series.chapters.length - 1] || null;
+    return [
+      '<article class="book-card">',
+      '<div class="book-cover"></div>',
+      '<div class="book-meta">',
+      '<div class="book-title">' + escapeHtml(series.name) + '</div>',
+      '<div class="book-sub">' + series.chapters.length + ' chapters' + (latest ? (' • Latest: ' + escapeHtml(latest.title)) : '') + '</div>',
+      '<div class="book-actions"><button type="button" data-open-series="' + escapeAttr(series.name) + '">Open title</button></div>',
+      '</div>',
+      '</article>'
     ].join('');
   }).join('');
 
   main.innerHTML = [
-    '<section class="manga-shell">',
-    '<div class="manga-panel">',
-    '<h2 class="manga-title">Manga Home</h2>',
-    '<div class="manga-muted">Showing all manga titles</div>',
+    '<div class="library-wrap">',
+    '<section class="home-hero">',
+    '<div class="home-section-head"><h2>Manga Reading Room</h2><span class="home-subtle">Showing all manga titles</span></div>',
+    '<div class="home-status-grid">',
+    '<div class="home-status-card"><span class="k">Library</span><span class="v">' + state.library.length + ' titles</span></div>',
+    '<div class="home-status-card"><span class="k">Chapters</span><span class="v">' + latestBySeries.reduce((sum, row) => sum + row.count, 0) + ' total</span></div>',
+    '<div class="home-status-card"><span class="k">Format</span><span class="v">No volumes</span></div>',
     '</div>',
-    '<div class="manga-grid">' + cards + '</div>',
     '</section>',
+    '<section class="home-section">',
+    '<div class="home-section-head"><h2>Latest Updates</h2><span class="home-subtle">Recent title activity</span></div>',
+    '<div class="home-card-grid">' + latestCards + '</div>',
+    '</section>',
+    '<section class="home-section">',
+    '<div class="home-section-head"><h2>All Manga</h2></div>',
+    '<div class="book-grid">' + allSeriesCards + '</div>',
+    '</section>',
+    '</div>'
   ].join('');
 
   main.querySelectorAll('[data-open-series]').forEach((btn) => {
@@ -293,37 +324,46 @@ function renderTitlePage() {
 
   const rows = visible.map((chapter) => {
     return [
-      '<div class="manga-chapter-item">',
-      '<div>',
-      '<p class="manga-chapter-title">' + escapeHtml(chapter.title) + '</p>',
-      '<div class="manga-muted">' + chapter.pages.length + ' page(s)</div>',
-      '</div>',
-      '<button type="button" data-open-chapter="' + escapeAttr(chapter.key) + '">Read</button>',
-      '</div>'
+      '<li class="title-chapter-row">',
+      '<button type="button" class="title-chapter-btn" data-open-chapter="' + escapeAttr(chapter.key) + '">',
+      '<span class="title-chapter-name">' + escapeHtml(chapter.title) + '</span>',
+      '<span class="title-chapter-meta">' + chapter.pages.length + ' pages</span>',
+      '</button>',
+      '</li>'
     ].join('');
   }).join('');
 
   main.innerHTML = [
-    '<section class="manga-shell">',
-    '<div class="manga-panel">',
-    '<div class="manga-row" style="justify-content:space-between;">',
-    '<div>',
-    '<button class="subtle" type="button" id="titleBackHome">Back home</button>',
-    '<h2 class="manga-title">' + escapeHtml(series.name) + '</h2>',
-    '<div class="manga-muted">Title page • no volumes</div>',
+    '<div class="library-wrap">',
+    '<div class="title-layout">',
+    '<aside class="title-sidebar">',
+    '<div class="title-sidebar-cover-fallback">MANGA</div>',
+    '<div class="title-sidebar-body">',
+    '<h2>' + escapeHtml(series.name) + '</h2>',
+    '<div class="title-tag-row"><span class="title-tag">Manga</span><span class="title-tag">No Volumes</span></div>',
+    '<ul class="title-meta-list">',
+    '<li>Total chapters: <strong>' + chapters.length + '</strong></li>',
+    '<li>Pages in this view: <strong>' + visible.reduce((sum, ch) => sum + ch.pages.length, 0) + '</strong></li>',
+    '<li>Pagination: <strong>10 chapters per page</strong></li>',
+    '</ul>',
     '</div>',
-    '<div class="manga-muted">' + chapters.length + ' total chapters</div>',
+    '</aside>',
+    '<section class="title-main">',
+    '<h1>About</h1>',
+    '<p class="title-description">Manga title page for ' + escapeHtml(series.name) + '. Chapter list is paged in sets of 10.</p>',
+    '<div class="title-action-row"><button class="primary" type="button" id="titleBackHome">Back home</button></div>',
+    '<div class="title-chapter-head">',
+    '<h2>Chapters</h2>',
+    '<div class="title-volume-controls"><span class="title-empty-row" style="padding:0;border:none;background:transparent;">Page ' + (state.chapterPage + 1) + ' of ' + totalPages + '</span></div>',
     '</div>',
-    '</div>',
-    '<div class="manga-panel">',
-    '<div class="manga-chapter-list">' + rows + '</div>',
-    '<div class="manga-pagination" style="margin-top:12px;">',
+    '<ul class="title-chapter-list">' + rows + '</ul>',
+    '<div class="manga-title-pagination">',
     '<button type="button" id="pagePrev" ' + (state.chapterPage <= 0 ? 'disabled' : '') + '>Previous 10</button>',
-    '<div class="manga-muted">Page ' + (state.chapterPage + 1) + ' of ' + totalPages + '</div>',
     '<button type="button" id="pageNext" ' + (state.chapterPage >= totalPages - 1 ? 'disabled' : '') + '>Next 10</button>',
     '</div>',
-    '</div>',
     '</section>',
+    '</div>',
+    '</div>'
   ].join('');
 
   const back = document.getElementById('titleBackHome');
@@ -391,23 +431,23 @@ function renderReader() {
   })();
 
   main.innerHTML = [
-    '<section class="manga-shell">',
+    '<div class="reader-v2">',
+    '<div class="reader-v2-shell">',
     chapterPickerMarkup,
     state.settingsOpen ? '<div class="manga-settings-panel"><strong>Settings</strong><div class="manga-muted" style="margin-top:6px;">Under dev</div></div>' : '',
-    '<div class="manga-panel">',
-    '<div class="manga-row" style="justify-content:space-between;">',
-    '<div>',
-    '<h2 class="manga-title" style="margin-top:0;">' + escapeHtml(series.name) + ' • ' + escapeHtml(chapter.title) + '</h2>',
-    '<div class="manga-muted">' + chapter.pages.length + ' page(s)</div>',
-    '</div>',
-    '<div class="manga-row">',
-    '<button type="button" id="prevChapter" ' + prevDisabled + '>Previous chapter</button>',
-    '<button type="button" id="nextChapter" ' + nextDisabled + '>Next chapter</button>',
-    '</div>',
-    '</div>',
-    '</div>',
+    '<article class="reader-content reader-content-v2">',
+    '<div class="reader-content-head"><div class="reader-kicker">Manga Chapter</div><h1>' + escapeHtml(series.name) + ' • ' + escapeHtml(chapter.title) + '</h1></div>',
     '<div class="manga-page-stack">' + pageMarkup + '</div>',
-    '</section>',
+    '</article>',
+    '<div class="reader-v2-bottom">',
+    '<div class="reader-v2-meta"><span>' + chapter.pages.length + ' page(s)</span></div>',
+    '<div class="reader-v2-nav">',
+    '<button type="button" id="prevChapter" ' + prevDisabled + '>Previous Chapter</button>',
+    '<button type="button" id="nextChapter" ' + nextDisabled + '>Next Chapter</button>',
+    '</div>',
+    '</div>',
+    '</div>',
+    '</div>'
   ].join('');
 
   const prev = document.getElementById('prevChapter');
