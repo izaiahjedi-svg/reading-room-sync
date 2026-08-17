@@ -7,31 +7,29 @@
   <link rel="icon" type="image/png" href="/book.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Literata:wght@400;600;700&family=Sora:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Literata:wght@400;500;600;700&family=Patrick+Hand&family=Sora:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/reader.css" />
   <link rel="stylesheet" href="/manga/manga.css" />
 </head>
-<body>
+<body data-theme="light">
   <div id="app">
-    <header class="topbar">
-      <div class="brand-wrap">
+    <div class="topbar" id="topbar">
+      <div class="brand">
+        <span class="mark"></span>
+        <span id="brandTitle">READING ROOM</span>
         <div class="mode-switch" role="tablist" aria-label="Reader mode">
           <a href="/reader.html" class="mode-link" role="tab" aria-selected="false">Novel</a>
           <a href="/manga" class="mode-link active" role="tab" aria-selected="true">Manga</a>
         </div>
-        <div class="brand">
-          <span class="mark"></span>
-          <span>Reading Room</span>
-        </div>
       </div>
-      <div class="actions">
-        <button id="importBtn" class="primary" type="button">Import Manga Folder</button>
-      </div>
-    </header>
+      <div class="topbar-actions" id="topbarActions"></div>
+    </div>
 
     <main id="main"></main>
     <input id="folderInput" type="file" webkitdirectory directory multiple accept="image/*" style="display:none;" />
   </div>
 
+  <div class="version-badge">manga prototype</div>
   <script src="/manga/manga.js"></script>
 </body>
 </html>

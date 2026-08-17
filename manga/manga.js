@@ -1,18 +1,19 @@
+const CHAPTERS_PER_PAGE = 10;
+
 const state = {
   view: 'home',
   library: [],
   activeSeries: '',
   activeChapterKey: '',
+  chapterPage: 0,
+  settingsOpen: false,
+  chapterPickerOpen: false,
+  importing: false,
 };
 
 const main = document.getElementById('main');
-const importBtn = document.getElementById('importBtn');
+const topbarActions = document.getElementById('topbarActions');
 const folderInput = document.getElementById('folderInput');
-
-importBtn.addEventListener('click', () => {
-  folderInput.value = '';
-  folderInput.click();
-});
 
 folderInput.addEventListener('change', async (event) => {
   const files = Array.from(event.target.files || []).filter((file) => isImage(file.name));
@@ -21,19 +22,20 @@ folderInput.addEventListener('change', async (event) => {
     return;
   }
 
-  importBtn.disabled = true;
-  importBtn.textContent = 'Importing...';
+  state.importing = true;
+  renderTopbar();
   renderMessage('Building manga library from folder...');
-
   try {
     state.library = await buildLibraryFromFiles(files);
     state.view = 'home';
     state.activeSeries = '';
     state.activeChapterKey = '';
+    state.chapterPage = 0;
+    state.settingsOpen = false;
     render();
   } finally {
-    importBtn.disabled = false;
-    importBtn.textContent = 'Import Manga Folder';
+    state.importing = false;
+    renderTopbar();
   }
 });
 
@@ -79,10 +81,7 @@ async function buildLibraryFromFiles(files) {
     }
 
     const dataUrl = await readFileAsDataUrl(file);
-    chapter.pages.push({
-      name: parts[parts.length - 1],
-      src: dataUrl,
-    });
+    chapter.pages.push({ name: parts[parts.length - 1], src: dataUrl });
   }
 
   const library = Array.from(seriesMap.values());
@@ -111,10 +110,6 @@ function readFileAsDataUrl(file) {
   });
 }
 
-function renderMessage(text) {
-  main.innerHTML = '<div class="empty">' + escapeHtml(text) + '</div>';
-}
-
 function getSeries(name) {
   return state.library.find((series) => series.name === name) || null;
 }
@@ -129,10 +124,18 @@ function getActiveChapter() {
   return chapters.find((chapter) => chapter.key === state.activeChapterKey) || null;
 }
 
+function openFolderPicker() {
+  folderInput.value = '';
+  folderInput.click();
+}
+
 function openSeries(seriesName) {
-  state.view = 'chapters';
+  state.view = 'title';
   state.activeSeries = seriesName;
   state.activeChapterKey = '';
+  state.chapterPage = 0;
+  state.settingsOpen = false;
+  state.chapterPickerOpen = false;
   render();
 }
 
@@ -140,6 +143,8 @@ function openChapter(seriesName, chapterKey) {
   state.view = 'reader';
   state.activeSeries = seriesName;
   state.activeChapterKey = chapterKey;
+  state.settingsOpen = false;
+  state.chapterPickerOpen = false;
   render();
   window.scrollTo(0, 0);
 }
@@ -150,11 +155,79 @@ function moveChapter(direction) {
   const nextIdx = idx + direction;
   if (nextIdx < 0 || nextIdx >= chapters.length) return;
   state.activeChapterKey = chapters[nextIdx].key;
+  state.settingsOpen = false;
+  state.chapterPickerOpen = false;
   render();
   window.scrollTo(0, 0);
 }
 
+function renderTopbar() {
+  topbarActions.innerHTML = '';
+
+  const importBtn = document.createElement('button');
+  importBtn.type = 'button';
+  importBtn.className = 'primary';
+  importBtn.textContent = state.importing ? 'Importing...' : 'Import Manga Folder';
+  importBtn.disabled = state.importing;
+  importBtn.onclick = openFolderPicker;
+
+  if (state.view === 'reader') {
+    const chapterTag = document.createElement('button');
+    chapterTag.type = 'button';
+    chapterTag.className = 'subtle';
+    chapterTag.disabled = false;
+    const chapter = getActiveChapter();
+    chapterTag.textContent = chapter ? chapter.title : 'Chapter';
+    chapterTag.onclick = () => {
+      state.chapterPickerOpen = !state.chapterPickerOpen;
+      render();
+    };
+
+    const homeBtn = document.createElement('button');
+    homeBtn.type = 'button';
+    homeBtn.className = 'subtle';
+    homeBtn.textContent = 'Home';
+    homeBtn.onclick = () => {
+      state.view = 'home';
+      state.settingsOpen = false;
+      state.chapterPickerOpen = false;
+      render();
+    };
+
+    const titleBtn = document.createElement('button');
+    titleBtn.type = 'button';
+    titleBtn.className = 'subtle';
+    titleBtn.textContent = 'Title';
+    titleBtn.onclick = () => {
+      state.view = 'title';
+      state.settingsOpen = false;
+      state.chapterPickerOpen = false;
+      render();
+    };
+
+    const settingsBtn = document.createElement('button');
+    settingsBtn.type = 'button';
+    settingsBtn.className = 'subtle';
+    settingsBtn.textContent = 'Settings';
+    settingsBtn.onclick = () => {
+      state.settingsOpen = !state.settingsOpen;
+      state.chapterPickerOpen = false;
+      render();
+    };
+
+    topbarActions.append(chapterTag, homeBtn, titleBtn, settingsBtn, importBtn);
+    return;
+  }
+
+  topbarActions.append(importBtn);
+}
+
+function renderMessage(text) {
+  main.innerHTML = '<section class="manga-shell"><div class="manga-empty">' + escapeHtml(text) + '</div></section>';
+}
+
 function render() {
+  renderTopbar();
   if (!state.library.length) {
     renderMessage('Import a manga folder to start. Expected format: series/chapter-0001/001.jpg');
     return;
@@ -164,10 +237,12 @@ function render() {
     renderHome();
     return;
   }
-  if (state.view === 'chapters') {
-    renderChapters();
+
+  if (state.view === 'title') {
+    renderTitlePage();
     return;
   }
+
   renderReader();
 }
 
@@ -176,24 +251,24 @@ function renderHome() {
     const latest = series.chapters[series.chapters.length - 1];
     const latestText = latest ? latest.title : 'No chapters found';
     return [
-      '<article class="card">',
+      '<article class="manga-card">',
       '<h3>' + escapeHtml(series.name) + '</h3>',
       '<p>' + series.chapters.length + ' chapter(s)</p>',
       '<p>Latest: ' + escapeHtml(latestText) + '</p>',
-      '<div class="row" style="margin-top:10px;">',
-      '<button type="button" data-open-series="' + escapeAttr(series.name) + '">Open series</button>',
+      '<div class="manga-row">',
+      '<button type="button" data-open-series="' + escapeAttr(series.name) + '">Open title page</button>',
       '</div>',
       '</article>',
     ].join('');
   }).join('');
 
   main.innerHTML = [
-    '<section>',
-    '<div class="row" style="justify-content:space-between;">',
-    '<h2 style="margin:0;">Manga Library</h2>',
-    '<span class="meta">' + state.library.length + ' series</span>',
+    '<section class="manga-shell">',
+    '<div class="manga-panel">',
+    '<h2 class="manga-title">Manga Home</h2>',
+    '<div class="manga-muted">Showing all manga titles</div>',
     '</div>',
-    '<div class="grid">' + cards + '</div>',
+    '<div class="manga-grid">' + cards + '</div>',
     '</section>',
   ].join('');
 
@@ -202,7 +277,7 @@ function renderHome() {
   });
 }
 
-function renderChapters() {
+function renderTitlePage() {
   const series = getSeries(state.activeSeries);
   if (!series) {
     state.view = 'home';
@@ -210,29 +285,71 @@ function renderChapters() {
     return;
   }
 
-  const chapterButtons = series.chapters.map((chapter) => {
-    return '<button class="chapter-btn" type="button" data-open-chapter="' + escapeAttr(chapter.key) + '">' + escapeHtml(chapter.title) + ' (' + chapter.pages.length + ' pages)</button>';
+  const chapters = series.chapters;
+  const totalPages = Math.max(1, Math.ceil(chapters.length / CHAPTERS_PER_PAGE));
+  state.chapterPage = Math.max(0, Math.min(state.chapterPage, totalPages - 1));
+  const start = state.chapterPage * CHAPTERS_PER_PAGE;
+  const visible = chapters.slice(start, start + CHAPTERS_PER_PAGE);
+
+  const rows = visible.map((chapter) => {
+    return [
+      '<div class="manga-chapter-item">',
+      '<div>',
+      '<p class="manga-chapter-title">' + escapeHtml(chapter.title) + '</p>',
+      '<div class="manga-muted">' + chapter.pages.length + ' page(s)</div>',
+      '</div>',
+      '<button type="button" data-open-chapter="' + escapeAttr(chapter.key) + '">Read</button>',
+      '</div>'
+    ].join('');
   }).join('');
 
   main.innerHTML = [
-    '<section>',
-    '<div class="row" style="justify-content:space-between;">',
+    '<section class="manga-shell">',
+    '<div class="manga-panel">',
+    '<div class="manga-row" style="justify-content:space-between;">',
     '<div>',
-    '<button class="ghost" type="button" id="backHome">Back</button>',
-    '<h2 style="margin:10px 0 0;">' + escapeHtml(series.name) + '</h2>',
+    '<button class="subtle" type="button" id="titleBackHome">Back home</button>',
+    '<h2 class="manga-title">' + escapeHtml(series.name) + '</h2>',
+    '<div class="manga-muted">Title page • no volumes</div>',
     '</div>',
-    '<span class="meta">No volumes</span>',
+    '<div class="manga-muted">' + chapters.length + ' total chapters</div>',
     '</div>',
-    '<div class="chapter-list">' + chapterButtons + '</div>',
+    '</div>',
+    '<div class="manga-panel">',
+    '<div class="manga-chapter-list">' + rows + '</div>',
+    '<div class="manga-pagination" style="margin-top:12px;">',
+    '<button type="button" id="pagePrev" ' + (state.chapterPage <= 0 ? 'disabled' : '') + '>Previous 10</button>',
+    '<div class="manga-muted">Page ' + (state.chapterPage + 1) + ' of ' + totalPages + '</div>',
+    '<button type="button" id="pageNext" ' + (state.chapterPage >= totalPages - 1 ? 'disabled' : '') + '>Next 10</button>',
+    '</div>',
+    '</div>',
     '</section>',
   ].join('');
 
-  const backHome = document.getElementById('backHome');
-  if (backHome) backHome.addEventListener('click', () => {
-    state.view = 'home';
-    state.activeSeries = '';
-    render();
-  });
+  const back = document.getElementById('titleBackHome');
+  if (back) {
+    back.addEventListener('click', () => {
+      state.view = 'home';
+      state.activeSeries = '';
+      state.chapterPage = 0;
+      render();
+    });
+  }
+
+  const prev = document.getElementById('pagePrev');
+  const next = document.getElementById('pageNext');
+  if (prev) {
+    prev.addEventListener('click', () => {
+      state.chapterPage = Math.max(0, state.chapterPage - 1);
+      renderTitlePage();
+    });
+  }
+  if (next) {
+    next.addEventListener('click', () => {
+      state.chapterPage = Math.min(totalPages - 1, state.chapterPage + 1);
+      renderTitlePage();
+    });
+  }
 
   main.querySelectorAll('[data-open-chapter]').forEach((btn) => {
     btn.addEventListener('click', () => openChapter(series.name, btn.getAttribute('data-open-chapter') || ''));
@@ -243,7 +360,7 @@ function renderReader() {
   const series = getSeries(state.activeSeries);
   const chapter = getActiveChapter();
   if (!series || !chapter) {
-    state.view = 'chapters';
+    state.view = 'title';
     render();
     return;
   }
@@ -252,39 +369,65 @@ function renderReader() {
   const idx = chapters.findIndex((item) => item.key === chapter.key);
   const prevDisabled = idx <= 0 ? 'disabled' : '';
   const nextDisabled = idx >= chapters.length - 1 ? 'disabled' : '';
+  const pageMarkup = chapter.pages
+    .map((page) => '<img loading="lazy" decoding="async" alt="' + escapeAttr(chapter.title + ' page ' + page.name) + '" src="' + page.src + '" />')
+    .join('');
 
-  const pageMarkup = chapter.pages.map((page) => {
-    return '<img loading="lazy" decoding="async" alt="' + escapeAttr(chapter.title + ' page ' + page.name) + '" src="' + page.src + '" />';
-  }).join('');
+  const chapterPickerMarkup = (() => {
+    if (!state.chapterPickerOpen) return '';
+    const chapterOptions = chapters.map((item) => {
+      const selected = item.key === chapter.key ? ' selected' : '';
+      return '<option value="' + escapeAttr(item.key) + '"' + selected + '>' + escapeHtml(item.title) + '</option>';
+    }).join('');
+    return [
+      '<div class="manga-settings-panel" id="chapterPickerPanel">',
+      '<strong>Chapter Picker</strong>',
+      '<div class="manga-row" style="margin-top:8px;">',
+      '<select id="chapterPickerSelect">' + chapterOptions + '</select>',
+      '<button type="button" id="chapterPickerGo">Go</button>',
+      '</div>',
+      '</div>'
+    ].join('');
+  })();
 
   main.innerHTML = [
-    '<section>',
-    '<div class="reader-head">',
+    '<section class="manga-shell">',
+    chapterPickerMarkup,
+    state.settingsOpen ? '<div class="manga-settings-panel"><strong>Settings</strong><div class="manga-muted" style="margin-top:6px;">Under dev</div></div>' : '',
+    '<div class="manga-panel">',
+    '<div class="manga-row" style="justify-content:space-between;">',
     '<div>',
-    '<button class="ghost" type="button" id="backChapters">Back to chapters</button>',
-    '<h2 style="margin:10px 0 0;">' + escapeHtml(series.name) + ' • ' + escapeHtml(chapter.title) + '</h2>',
-    '<div class="meta">' + chapter.pages.length + ' page(s)</div>',
+    '<h2 class="manga-title" style="margin-top:0;">' + escapeHtml(series.name) + ' • ' + escapeHtml(chapter.title) + '</h2>',
+    '<div class="manga-muted">' + chapter.pages.length + ' page(s)</div>',
     '</div>',
-    '<div class="row">',
+    '<div class="manga-row">',
     '<button type="button" id="prevChapter" ' + prevDisabled + '>Previous chapter</button>',
     '<button type="button" id="nextChapter" ' + nextDisabled + '>Next chapter</button>',
     '</div>',
     '</div>',
-    '<div class="page-stack">' + pageMarkup + '</div>',
+    '</div>',
+    '<div class="manga-page-stack">' + pageMarkup + '</div>',
     '</section>',
   ].join('');
-
-  const backChapters = document.getElementById('backChapters');
-  if (backChapters) backChapters.addEventListener('click', () => {
-    state.view = 'chapters';
-    state.activeChapterKey = '';
-    render();
-  });
 
   const prev = document.getElementById('prevChapter');
   const next = document.getElementById('nextChapter');
   if (prev) prev.addEventListener('click', () => moveChapter(-1));
   if (next) next.addEventListener('click', () => moveChapter(1));
+
+  const chapterPickerGo = document.getElementById('chapterPickerGo');
+  const chapterPickerSelect = document.getElementById('chapterPickerSelect');
+  if (chapterPickerGo && chapterPickerSelect) {
+    chapterPickerGo.addEventListener('click', () => {
+      const nextKey = (chapterPickerSelect.value || '').trim();
+      if (!nextKey || nextKey === chapter.key) {
+        state.chapterPickerOpen = false;
+        render();
+        return;
+      }
+      openChapter(series.name, nextKey);
+    });
+  }
 }
 
 function escapeHtml(value) {
