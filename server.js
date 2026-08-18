@@ -2,6 +2,8 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const r2 = require('./r2-storage');
+const { registerMangaRoutes } = require('./manga-routes');
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -73,6 +75,8 @@ function safeAsync(handler) {
     });
   };
 }
+
+registerMangaRoutes(app, r2, safeAsync);
 
 if (githubStorageConfig) {
   console.log('GitHub-backed sync storage enabled for ' + githubStorageConfig.owner + '/' + githubStorageConfig.repo + ' @ ' + githubStorageConfig.branch);

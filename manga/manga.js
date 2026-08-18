@@ -17,6 +17,19 @@ const main = document.getElementById('main');
 const topbarActions = document.getElementById('topbarActions');
 const folderInput = document.getElementById('folderInput');
 
+async function mangaApi(path, options) {
+  const response = await fetch(path, Object.assign({ headers: { 'Content-Type': 'application/json' } }, options || {}));
+  if (!response.ok) {
+    let message = 'Manga storage request failed (' + response.status + ')';
+    try {
+      const payload = await response.json();
+      if (payload && payload.error) message = payload.error;
+    } catch (e) {}
+    throw new Error(message);
+  }
+  return response;
+}
+
 applyTheme(readStoredTheme());
 applyPageWidth();
 
@@ -32,11 +45,14 @@ folderInput.addEventListener('change', async (event) => {
   renderMessage('Building manga library from folder...');
   try {
     state.library = await buildLibraryFromFiles(files);
+    await saveMangaLibrary();
     state.view = 'home';
     state.activeSeries = '';
     state.activeChapterKey = '';
     state.chapterPage = 0;
     render();
+  } catch (error) {
+    renderMessage(error.message || 'Manga upload failed.');
   } finally {
     state.importing = false;
     renderTopbar();
@@ -118,8 +134,19 @@ async function buildLibraryFromFiles(files) {
       series.chapters.push(chapter);
     }
 
+    const pageIndex = chapter.pages.length + 1;
     const dataUrl = await readFileAsDataUrl(file);
-    chapter.pages.push({ name: parts[parts.length - 1], src: dataUrl });
+    await mangaApi('/api/manga/page', {
+      method: 'POST',
+      body: JSON.stringify({ series: seriesName, chapter: chapterName, page: pageIndex, dataUrl }),
+    });
+    if (pageIndex === 1) {
+      await mangaApi('/api/manga/cover', {
+        method: 'POST',
+        body: JSON.stringify({ series: seriesName, dataUrl }),
+      });
+    }
+    chapter.pages.push({ name: parts[parts.length - 1], page: pageIndex });
   }
 
   const library = Array.from(seriesMap.values());
@@ -137,6 +164,49 @@ async function buildLibraryFromFiles(files) {
 
   library.sort((a, b) => naturalCompare(a.name, b.name));
   return library;
+}
+
+async function saveMangaLibrary() {
+  const series = {};
+  state.library.forEach((entry) => {
+    series[entry.name] = {
+      name: entry.name,
+      chapters: entry.chapters.map((chapter) => ({
+        key: chapter.key,
+        title: chapter.title,
+        chapterNumber: chapter.chapterNumber,
+        pages: chapter.pages.map((page) => ({ name: page.name, page: page.page })),
+      })),
+    };
+  });
+  await mangaApi('/api/manga/library', {
+    method: 'POST',
+    body: JSON.stringify({ version: 1, updatedAt: Date.now(), series }),
+  });
+}
+
+async function loadMangaLibrary() {
+  const response = await mangaApi('/api/manga/library');
+  const payload = await response.json();
+  const seriesMap = payload && payload.data && payload.data.series ? payload.data.series : {};
+  state.library = Object.values(seriesMap).map((series) => ({
+    name: series.name,
+    chapters: (series.chapters || []).map((chapter) => ({
+      key: chapter.key,
+      title: chapter.title || chapter.key,
+      chapterNumber: Number.isFinite(Number(chapter.chapterNumber)) ? Number(chapter.chapterNumber) : parseChapterSort(chapter.key),
+      pages: (chapter.pages || []).map((page) => ({
+        name: page.name || String(page.page).padStart(3, '0') + '.webp',
+        page: page.page,
+      })),
+    })),
+  }));
+  state.library.sort((a, b) => naturalCompare(a.name, b.name));
+}
+
+function pageUrl(series, chapter, page) {
+  const params = new URLSearchParams({ series, chapter, page: String(page) });
+  return '/api/manga/page?' + params.toString();
 }
 
 function readFileAsDataUrl(file) {
@@ -397,7 +467,7 @@ function renderReader() {
   const prevMeta = idx > 0 ? chapters[idx - 1] : null;
   const nextMeta = idx < chapters.length - 1 ? chapters[idx + 1] : null;
   const pageMarkup = chapter.pages
-    .map((page) => '<img loading="lazy" decoding="async" alt="' + escapeAttr(chapter.title + ' page ' + page.name) + '" src="' + page.src + '" />')
+    .map((page) => '<img loading="lazy" decoding="async" alt="' + escapeAttr(chapter.title + ' page ' + page.name) + '" src="' + pageUrl(series.name, chapter.key, page.page) + '" />')
     .join('');
 
   main.innerHTML = [
@@ -506,4 +576,14 @@ function escapeAttr(value) {
     .replace(/>/g, '&gt;');
 }
 
-render();
+async function initialize() {
+  renderMessage('Loading manga library...');
+  try {
+    await loadMangaLibrary();
+    render();
+  } catch (error) {
+    renderMessage(error.message || 'Manga storage is unavailable.');
+  }
+}
+
+initialize();
