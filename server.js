@@ -43,12 +43,10 @@ function githubPathForKey(key, leafPath) {
 }
 
 async function githubReadJson(filePath) {
-  if (!r2.isR2Configured()) return null;
   return r2.getJson(filePath);
 }
 
 async function githubWriteJson(filePath, value, message) {
-  if (!r2.isR2Configured()) return false;
   await r2.putJson(filePath, value);
   return true;
 }
