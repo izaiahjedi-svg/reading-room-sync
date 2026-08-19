@@ -291,7 +291,8 @@
       settings: { font:'Georgia, "Iowan Old Style", serif', fontSize:19, lineHeight:1.7, theme:'dark' }
     }
   };
-  let view = { mode:'library', chapterId:null, search:'', bookFilter:'', chapterSort:'book-volume-added', booksCollapsed:false, debugOpen:false, mobileChromeCollapsed:false };
+  const debugQueryEnabled = new URLSearchParams(window.location.search || '').get('debug') === '1';
+  let view = { mode:'library', chapterId:null, search:'', bookFilter:'', chapterSort:'book-volume-added', booksCollapsed:false, debugOpen:debugQueryEnabled, mobileChromeCollapsed:false };
   let saveTimer = null;
   let settingsSaveTimer = null;
   let pendingChapterTitle = '';
@@ -345,7 +346,8 @@
     message: '',
   };
   let syncEvents = [];
-  let mainPageDebug = { loading:false, data:null, error:'' };
+  let mainPageDebug = { loading:false, data:null, error:'', refreshStartedAt:0 };
+  let debugRefreshTimer = null;
   let pendingCoverDataUrl = null;
   let syncStatus = { state:'idle', at:0, message:'' };
   let lastRemoteLibraryErrorStatus = 0;
@@ -837,6 +839,10 @@
       backfill: Object.assign({}, backfillDebug),
       scopedCleanup: Object.assign({}, scopedCleanupDebug),
       events: syncEvents.slice(0, 12),
+      syncStatus: Object.assign({}, syncStatus),
+      remoteLibraryErrorStatus: lastRemoteLibraryErrorStatus,
+      remoteLibraryRetryAfterSec: lastRemoteLibraryRetryAfterSec,
+      capturedAt: Date.now(),
     };
   }
 
@@ -898,6 +904,7 @@
     if (routeBookSlug) return;
     mainPageDebug.loading = true;
     mainPageDebug.error = '';
+    mainPageDebug.refreshStartedAt = Date.now();
     render();
     try {
       mainPageDebug.data = await collectMainPageDebugData();
@@ -907,6 +914,15 @@
       mainPageDebug.loading = false;
       render();
     }
+  }
+
+  function startLiveDebugRefresh(){
+    if (debugRefreshTimer || routeBookSlug || !view.debugOpen) return;
+    debugRefreshTimer = setInterval(() => {
+      if (!view.debugOpen || view.mode !== 'library') return;
+      refreshMainPageDebug().catch(() => {});
+    }, 2000);
+    refreshMainPageDebug().catch(() => {});
   }
 
   function hashString(str){

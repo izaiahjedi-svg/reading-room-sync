@@ -1386,6 +1386,7 @@ function renderLibrary(){
     renderHomePage(wrap);
 
     if (view.debugOpen) {
+      startLiveDebugRefresh();
       const panel = document.createElement('div');
       panel.className = 'continue-card';
       const d = mainPageDebug.data;
@@ -1407,6 +1408,8 @@ function renderLibrary(){
           <div style="font-size:12px;color:var(--ink-soft);margin-top:10px;line-height:1.6;">
             <div>Sync attempts: ${syncDebug.attempts} | success: ${syncDebug.successes} | fail: ${syncDebug.failures}</div>
             <div>Last reason: ${esc(syncDebug.lastReason || 'n/a')}</div>
+            <div>Current sync: ${d && d.syncStatus ? esc((d.syncStatus.state || 'idle') + ' - ' + (d.syncStatus.message || '')) : '-'}</div>
+            <div>Remote library error: ${d && d.remoteLibraryErrorStatus ? d.remoteLibraryErrorStatus : 'none'}${d && d.remoteLibraryRetryAfterSec ? ' | retry after ~' + d.remoteLibraryRetryAfterSec + 's' : ''}</div>
             <div>Last payload: ${formatBytes(syncDebug.lastPayloadBytes)} | last sync time: ${syncDebug.lastDurationMs} ms</div>
             <div>Recovery pulls: ${syncDebug.recoveryAttempts}</div>
             <div>Books: ${d ? d.books : '-'} | Chapters: ${d ? d.chapters : '-'}</div>
@@ -1419,6 +1422,7 @@ function renderLibrary(){
             <div>Backfill run: ${b.active ? 'active' : 'idle'} | scanned ${b.scanned || 0}/${b.total || 0} | checked ${b.checked || 0} | uploaded ${b.uploaded || 0} | failed ${b.failed || 0}</div>
             <div>Backfill state: ${b.complete ? 'complete' : 'incomplete'} | cursor ${b.cursor || 0} | runs ${b.runs || 0}</div>
             <div>Backfill note: ${esc(b.message || 'n/a')}</div>
+            <div>Diagnostics captured: ${d && d.capturedAt ? new Date(d.capturedAt).toLocaleTimeString() : 'not yet'}</div>
             <div>Scoped cleanup: ${c.active ? 'active' : 'idle'} | deleted ${c.deleted || 0} | remaining ~${c.remaining || 0} | runs ${c.runs || 0}</div>
             <div>Scoped cleanup note: ${esc(c.message || 'n/a')}</div>
             <div style="margin-top:8px;font-weight:600;">Recent sync events</div>
