@@ -357,6 +357,7 @@
   const PROGRESS_SYNC_MIN_INTERVAL_MS = 15000;
   const CHAPTER_UPDATED_CUTOVER_UTC = '2026-07-31T00:00:00.000Z';
   const CHAPTER_UPDATED_CUTOVER_MS = Date.parse(CHAPTER_UPDATED_CUTOVER_UTC) || 0;
+  const CHAPTER_BACKFILL_STORAGE_VERSION = 'r2-v1';
 
   function addSyncEvent(kind, message){
     syncEvents.unshift({ at: Date.now(), kind: kind || 'info', message: message || '' });
@@ -1173,7 +1174,10 @@
 
     const signature = hashString(ids.join('|'));
     const prev = readChapterBackfillState();
-    const sameSig = !!(prev && prev.sig === signature);
+    const sameSig = !!(prev && prev.sig === signature && prev.storageVersion === CHAPTER_BACKFILL_STORAGE_VERSION);
+    if (prev && prev.sig === signature && prev.storageVersion !== CHAPTER_BACKFILL_STORAGE_VERSION) {
+      addSyncEvent('backfill-reset', 'Starting a fresh R2 backfill scan');
+    }
     if (sameSig && prev.complete) {
       backfillDebug.complete = true;
       backfillDebug.message = 'Backfill already complete';
@@ -1227,6 +1231,7 @@
         : ('Backfill partial (' + scanned + '/' + ids.length + ' scanned)');
       writeChapterBackfillState({
         sig: signature,
+        storageVersion: CHAPTER_BACKFILL_STORAGE_VERSION,
         cursor: nextCursor,
         scanned,
         complete,
