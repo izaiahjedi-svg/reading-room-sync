@@ -125,7 +125,7 @@ function clearChapterParamFromUrl(){
 
 fileInput.addEventListener('change', (e) => handleUpload(e.target.files, fileInput));
 folderInput.addEventListener('change', (e) => handleUpload(e.target.files, folderInput));
-coverInput.addEventListener('change', async (e) => {
+if (coverInput) coverInput.addEventListener('change', async (e) => {
   const file = (e.target.files && e.target.files[0]) ? e.target.files[0] : null;
   if (!file) return;
   pendingCoverDataUrl = await readCoverAsDataUrl(file);
@@ -563,7 +563,7 @@ async function exportLibrary(){
   if (btn){ btn.disabled = false; btn.textContent = 'Export library'; }
 }
 
-importInput.addEventListener('change', async (e) => {
+if (importInput) importInput.addEventListener('change', async (e) => {
   const file = e.target.files && e.target.files[0];
   importInput.value = '';
   if (!file) return;
