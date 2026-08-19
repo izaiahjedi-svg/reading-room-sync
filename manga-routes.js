@@ -64,7 +64,7 @@ function registerMangaRoutes(app, r2, safeAsync) {
     const obj = await r2.getObject(mangaPageKey(series, chapter, pageIndex));
     if (!obj) return res.status(404).json({ error: 'Page not found' });
     res.setHeader('Content-Type', obj.contentType);
-    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    res.setHeader('Cache-Control', 'public, max-age=3600, must-revalidate');
     return res.send(obj.buffer);
   }));
 
@@ -89,7 +89,7 @@ function registerMangaRoutes(app, r2, safeAsync) {
     const obj = await r2.getObject(mangaCoverKey(series));
     if (!obj) return res.status(404).json({ error: 'Cover not found' });
     res.setHeader('Content-Type', obj.contentType);
-    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    res.setHeader('Cache-Control', 'public, max-age=3600, must-revalidate');
     return res.send(obj.buffer);
   }));
 
