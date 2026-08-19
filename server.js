@@ -23,53 +23,11 @@ if (!fs.existsSync(chapterDir)) fs.mkdirSync(chapterDir, { recursive: true });
 app.use(express.json({ limit: '200mb' }));
 app.use(express.static(__dirname));
 
-function parseGitHubRepoSpec(value) {
-  const raw = (value || '').toString().trim();
-  if (!raw) return null;
-  const parts = raw.split('/').filter(Boolean);
-  if (parts.length < 2) return null;
-  return { owner: parts[0], repo: parts.slice(1).join('/') };
-}
-
-function getGitHubStorageConfig() {
-  const token = (process.env.GITHUB_TOKEN || '').toString().trim();
-  const branch = (process.env.GITHUB_BRANCH || 'data').toString().trim() || 'data';
-  const prefix = (process.env.GITHUB_DB_PREFIX || 'sync-db').toString().trim().replace(/^\/+|\/+$/g, '') || 'sync-db';
-  const repoSpec = parseGitHubRepoSpec(process.env.GITHUB_REPOSITORY || process.env.GITHUB_REPO || '');
-  const owner = (process.env.GITHUB_OWNER || (repoSpec && repoSpec.owner) || '').toString().trim();
-  const repo = (process.env.GITHUB_REPO_NAME || (repoSpec && repoSpec.repo) || '').toString().trim();
-  if (!token || !owner || !repo) return null;
-  return { token, owner, repo, branch, prefix };
-}
-
-const githubStorageConfig = getGitHubStorageConfig();
-const githubWriteQueues = new Map();
-const githubReadCache = new Map();
-let githubRateLimitBlockedUntil = 0;
-let lastRateLimitLogAt = 0;
-
-function isGitHubWriteBlocked() {
-  return Date.now() < githubRateLimitBlockedUntil;
-}
-
 function safeAsync(handler) {
   return (req, res) => {
     Promise.resolve(handler(req, res)).catch((err) => {
-      if (err && err.code === 'GITHUB_RATE_LIMIT') {
-        const now = Date.now();
-        if (now - lastRateLimitLogAt > 30000) {
-          lastRateLimitLogAt = now;
-          console.warn('GitHub sync temporarily rate-limited; serving 429 until cooldown expires.');
-        }
-      } else {
-        console.error('Request failed:', err && err.stack ? err.stack : err);
-      }
+      console.error('Request failed:', err && err.stack ? err.stack : err);
       if (!res.headersSent) {
-        if (err && err.code === 'GITHUB_RATE_LIMIT') {
-          const retryAfterSec = Math.max(1, Math.ceil(((err.retryAfterMs || 0) / 1000)));
-          res.setHeader('Retry-After', String(retryAfterSec));
-          return res.status(429).json({ error: 'Sync backend rate limited, retry shortly' });
-        }
         res.status(502).json({ error: 'Sync backend unavailable' });
       }
     });
@@ -78,255 +36,21 @@ function safeAsync(handler) {
 
 registerMangaRoutes(app, r2, safeAsync);
 
-if (githubStorageConfig) {
-  console.log('GitHub-backed sync storage enabled for ' + githubStorageConfig.owner + '/' + githubStorageConfig.repo + ' @ ' + githubStorageConfig.branch);
-  if (githubStorageConfig.owner === 'owner' && githubStorageConfig.repo === 'repo') {
-    console.warn('GITHUB_REPOSITORY is set to placeholder value owner/repo; update Render env vars to your real repository.');
-  }
-}
-
-function githubRootPathForKey(key) {
-  return githubStorageConfig ? (githubStorageConfig.prefix + '/' + keyDigest(key)) : '';
-}
+const novelStoragePrefix = (process.env.GITHUB_DB_PREFIX || 'sync-db').toString().trim().replace(/^\/+|\/+$/g, '') || 'sync-db';
 
 function githubPathForKey(key, leafPath) {
-  return githubStorageConfig ? (githubRootPathForKey(key) + '/' + leafPath.replace(/^\/+/, '')) : '';
-}
-
-function githubFileUrl(filePath) {
-  return 'https://api.github.com/repos/' + encodeURIComponent(githubStorageConfig.owner) + '/' + encodeURIComponent(githubStorageConfig.repo) + '/contents/' + filePath.split('/').map((part) => encodeURIComponent(part)).join('/');
-}
-
-function githubHeaders() {
-  return {
-    'Authorization': 'Bearer ' + githubStorageConfig.token,
-    'Accept': 'application/vnd.github+json',
-    'X-GitHub-Api-Version': '2022-11-28',
-  };
-}
-
-function isRetryableGithubStatus(status) {
-  return status === 408 || status === 429 || status === 500 || status === 502 || status === 503 || status === 504;
-}
-
-function getRateLimitResetMs(res) {
-  const rateReset = (res && res.headers && res.headers.get('x-ratelimit-reset')) || '';
-  const resetEpochSec = Number.parseInt(rateReset, 10);
-  if (Number.isFinite(resetEpochSec) && resetEpochSec > 0) {
-    return Math.max(0, (resetEpochSec * 1000) - Date.now() + 250);
-  }
-  return 0;
-}
-
-function isGitHubRateLimitResponse(res) {
-  if (!res || res.status !== 403) return false;
-  const remaining = Number.parseInt((res.headers && res.headers.get('x-ratelimit-remaining')) || '', 10);
-  if (Number.isFinite(remaining) && remaining <= 0) return true;
-  const retryAfter = Number.parseInt((res.headers && res.headers.get('retry-after')) || '', 10);
-  if (Number.isFinite(retryAfter) && retryAfter > 0) return true;
-  return false;
-}
-
-function markGitHubRateLimitWindow(res) {
-  const resetMs = getRateLimitResetMs(res);
-  const fallbackMs = 30000;
-  const waitMs = Math.max(1000, resetMs || fallbackMs);
-  githubRateLimitBlockedUntil = Math.max(githubRateLimitBlockedUntil, Date.now() + waitMs);
-  return waitMs;
-}
-
-function retryDelayMsFromHeaders(res, attempt) {
-  const retryAfter = (res && res.headers && res.headers.get('retry-after')) || '';
-  const retryAfterSec = Number.parseInt(retryAfter, 10);
-  if (Number.isFinite(retryAfterSec) && retryAfterSec > 0) {
-    return Math.min(15000, retryAfterSec * 1000);
-  }
-
-  const rateRemaining = (res && res.headers && res.headers.get('x-ratelimit-remaining')) || '';
-  const rateReset = (res && res.headers && res.headers.get('x-ratelimit-reset')) || '';
-  const remaining = Number.parseInt(rateRemaining, 10);
-  const resetEpochSec = Number.parseInt(rateReset, 10);
-  if (Number.isFinite(remaining) && remaining <= 0 && Number.isFinite(resetEpochSec)) {
-    const msUntilReset = (resetEpochSec * 1000) - Date.now();
-    if (msUntilReset > 0) return Math.min(15000, msUntilReset + 200);
-  }
-
-  return Math.min(5000, 250 * attempt);
-}
-
-async function githubFetchWithRetry(url, options, settings) {
-  const maxAttempts = (settings && settings.maxAttempts) || 4;
-  const allow404 = !!(settings && settings.allow404);
-  if (Date.now() < githubRateLimitBlockedUntil) {
-    return null;
-  }
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    try {
-      const res = await fetch(url, options);
-      if (res.ok) return res;
-      if (allow404 && res.status === 404) return res;
-      if (isGitHubRateLimitResponse(res)) {
-        markGitHubRateLimitWindow(res);
-        return res;
-      }
-      if (isRetryableGithubStatus(res.status) && attempt < maxAttempts) {
-        const delayMs = retryDelayMsFromHeaders(res, attempt);
-        await new Promise((resolve) => setTimeout(resolve, delayMs));
-        continue;
-      }
-      return res;
-    } catch (e) {
-      if (attempt >= maxAttempts) throw e;
-      await new Promise((resolve) => setTimeout(resolve, 250 * attempt));
-    }
-  }
-  return null;
-}
-
-function enqueueGitHubWrite(queueKey, task) {
-  const existing = githubWriteQueues.get(queueKey) || Promise.resolve();
-  const next = existing.catch(() => {}).then(task);
-  const tracked = next.catch(() => {}).finally(() => {
-    if (githubWriteQueues.get(queueKey) === tracked) githubWriteQueues.delete(queueKey);
-  });
-  githubWriteQueues.set(queueKey, tracked);
-  return next;
+  return novelStoragePrefix + '/' + keyDigest(key) + '/' + leafPath.replace(/^\/+/, '');
 }
 
 async function githubReadJson(filePath) {
-  if (!githubStorageConfig) return null;
-  try {
-    const res = await githubFetchWithRetry(githubFileUrl(filePath) + '?ref=' + encodeURIComponent(githubStorageConfig.branch), {
-      headers: githubHeaders(),
-    }, { maxAttempts: 4, allow404: true });
-    if (!res) {
-      if (githubReadCache.has(filePath)) return githubReadCache.get(filePath);
-      return null;
-    }
-    if (res.status === 404) {
-      githubReadCache.delete(filePath);
-      return null;
-    }
-    if (!res.ok) {
-      if (isGitHubRateLimitResponse(res) && githubReadCache.has(filePath)) {
-        return githubReadCache.get(filePath);
-      }
-      return null;
-    }
-    const payload = await res.json();
-    const content = payload && payload.content ? payload.content.replace(/\n/g, '') : '';
-    if (!content) return null;
-    const text = Buffer.from(content, 'base64').toString('utf8');
-    const parsed = JSON.parse(text);
-    githubReadCache.set(filePath, parsed);
-    return parsed;
-  } catch (e) {
-    console.warn('GitHub read failed for', filePath, e.message);
-    if (githubReadCache.has(filePath)) return githubReadCache.get(filePath);
-    return null;
-  }
+  if (!r2.isR2Configured()) return null;
+  return r2.getJson(filePath);
 }
 
 async function githubWriteJson(filePath, value, message) {
-  if (!githubStorageConfig) return false;
-  const payload = Buffer.from(JSON.stringify(value || {}), 'utf8').toString('base64');
-  return enqueueGitHubWrite(filePath, async () => {
-    const maxAttempts = 4;
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      const existing = await githubFetchWithRetry(githubFileUrl(filePath) + '?ref=' + encodeURIComponent(githubStorageConfig.branch), {
-        headers: githubHeaders(),
-      }, { maxAttempts: 3, allow404: true });
-      let sha = null;
-      if (existing && existing.ok) {
-        try {
-          const current = await existing.json();
-          sha = current && current.sha ? current.sha : null;
-        } catch (e) {}
-      }
-
-      const res = await githubFetchWithRetry(githubFileUrl(filePath), {
-        method: 'PUT',
-        headers: Object.assign({ 'Content-Type': 'application/json' }, githubHeaders()),
-        body: JSON.stringify({
-          message: message || ('Update ' + filePath),
-          content: payload,
-          branch: githubStorageConfig.branch,
-          ...(sha ? { sha } : {}),
-        }),
-      }, { maxAttempts: 3, allow404: false });
-
-      if (!res) {
-        const err = new Error('GitHub write failed for ' + filePath + ': no response');
-        if (Date.now() < githubRateLimitBlockedUntil) {
-          err.code = 'GITHUB_RATE_LIMIT';
-          err.retryAfterMs = Math.max(1000, githubRateLimitBlockedUntil - Date.now());
-        }
-        throw err;
-      }
-
-      if (res.ok) {
-        return true;
-      }
-
-      const text = await res.text().catch(() => '');
-      if (res.status === 403 && /rate limit exceeded/i.test(text)) {
-        const err = new Error('GitHub write rate limited for ' + filePath);
-        err.code = 'GITHUB_RATE_LIMIT';
-        err.retryAfterMs = markGitHubRateLimitWindow(res);
-        throw err;
-      }
-      if (res.status === 409 && attempt < maxAttempts) {
-        // Another client updated the file between read and write; retry with latest sha.
-        await new Promise((resolve) => setTimeout(resolve, 80 * attempt));
-        continue;
-      }
-      throw new Error('GitHub write failed for ' + filePath + ' (' + res.status + '): ' + text.slice(0, 200));
-    }
-    return false;
-  });
-}
-
-async function githubDeleteJson(filePath, message) {
-  if (!githubStorageConfig) return false;
-  return enqueueGitHubWrite(filePath, async () => {
-    const existing = await githubFetchWithRetry(githubFileUrl(filePath) + '?ref=' + encodeURIComponent(githubStorageConfig.branch), {
-      headers: githubHeaders(),
-    }, { maxAttempts: 4, allow404: true });
-    if (!existing || !existing.ok) return true;
-    const current = await existing.json();
-    if (!current || !current.sha) return true;
-    const res = await githubFetchWithRetry(githubFileUrl(filePath), {
-      method: 'DELETE',
-      headers: Object.assign({ 'Content-Type': 'application/json' }, githubHeaders()),
-      body: JSON.stringify({
-        message: message || ('Delete ' + filePath),
-        sha: current.sha,
-        branch: githubStorageConfig.branch,
-      }),
-    }, { maxAttempts: 3, allow404: true });
-    if (!res) {
-      const err = new Error('GitHub delete failed for ' + filePath + ': no response');
-      if (Date.now() < githubRateLimitBlockedUntil) {
-        err.code = 'GITHUB_RATE_LIMIT';
-        err.retryAfterMs = Math.max(1000, githubRateLimitBlockedUntil - Date.now());
-      }
-      throw err;
-    }
-    if (res.status === 403) {
-      const text = await res.text().catch(() => '');
-      if (/rate limit exceeded/i.test(text)) {
-        const err = new Error('GitHub delete rate limited for ' + filePath);
-        err.code = 'GITHUB_RATE_LIMIT';
-        err.retryAfterMs = markGitHubRateLimitWindow(res);
-        throw err;
-      }
-    }
-    if (!res.ok && res.status !== 404) {
-      const text = await res.text().catch(() => '');
-      throw new Error('GitHub delete failed for ' + filePath + ' (' + res.status + '): ' + text.slice(0, 200));
-    }
-    return true;
-  });
+  if (!r2.isR2Configured()) return false;
+  await r2.putJson(filePath, value);
+  return true;
 }
 
 function githubKeyFilePath(key) {
@@ -368,7 +92,7 @@ async function saveLibraryToGithub(key, value) {
 }
 
 async function readStateData(key) {
-  if (githubStorageConfig) {
+  if (r2.isR2Configured()) {
     const remote = await githubReadJson(githubStateFilePath(key));
     if (remote) return remote;
     const legacyRemote = await githubReadJson(githubKeyFilePath(key));
@@ -394,7 +118,7 @@ async function readStateData(key) {
 }
 
 async function writeStateData(key, value) {
-  if (githubStorageConfig) {
+  if (r2.isR2Configured()) {
     return githubWriteJson(githubStateFilePath(key), value, 'Update profile state for ' + keyDigest(key));
   }
   const p = stateFilePath(key);
@@ -403,7 +127,7 @@ async function writeStateData(key, value) {
 }
 
 async function readCoverData(key, bookName) {
-  if (githubStorageConfig) {
+  if (r2.isR2Configured()) {
     return githubReadJson(githubCoverFilePath(key, bookName));
   }
   const p = coverFilePath(key, bookName);
@@ -416,7 +140,7 @@ async function readCoverData(key, bookName) {
 }
 
 async function writeCoverData(key, bookName, value) {
-  if (githubStorageConfig) {
+  if (r2.isR2Configured()) {
     return githubWriteJson(githubCoverFilePath(key, bookName), value, 'Update cover for ' + safeBookSlugForCover(bookName) + ' (' + keyDigest(key) + ')');
   }
   const p = coverFilePath(key, bookName);
@@ -425,7 +149,7 @@ async function writeCoverData(key, bookName, value) {
 }
 
 async function readChapterDataRemoteAware(key, chapterId) {
-  if (githubStorageConfig) {
+  if (r2.isR2Configured()) {
     const remote = await githubReadJson(githubChapterFilePath(key, chapterId));
     if (remote) return remote;
   }
@@ -439,7 +163,7 @@ async function readChapterDataRemoteAware(key, chapterId) {
 }
 
 async function writeChapterDataRemoteAware(key, chapterId, value) {
-  if (githubStorageConfig) {
+  if (r2.isR2Configured()) {
     return githubWriteJson(githubChapterFilePath(key, chapterId), value, 'Update chapter ' + chapterId + ' (' + keyDigest(key) + ')');
   }
   const p = chapterFilePath(key, chapterId);
@@ -448,9 +172,7 @@ async function writeChapterDataRemoteAware(key, chapterId, value) {
 }
 
 async function deleteChapterDataRemoteAware(key, chapterId) {
-  if (githubStorageConfig) {
-    return githubDeleteJson(githubChapterFilePath(key, chapterId), 'Delete chapter ' + chapterId + ' (' + keyDigest(key) + ')');
-  }
+  if (r2.isR2Configured()) return true;
   const p = chapterFilePath(key, chapterId);
   try { if (fs.existsSync(p)) fs.unlinkSync(p); } catch (e) {}
   return true;
@@ -678,7 +400,7 @@ function coverPublicPath(key, bookName) {
 }
 
 async function readKeyData(key) {
-  if (githubStorageConfig) {
+  if (r2.isR2Configured()) {
     return githubReadJson(githubKeyFilePath(key));
   }
   const p = keyFilePath(key);
@@ -692,7 +414,7 @@ async function readKeyData(key) {
 }
 
 async function writeKeyData(key, value) {
-  if (githubStorageConfig) {
+  if (r2.isR2Configured()) {
     return saveLibraryToGithub(key, value);
   }
   const p = keyFilePath(key);
@@ -810,20 +532,13 @@ app.post('/api/cover', safeAsync(async (req, res) => {
   const parsed = parseDataUrlImage(dataUrl);
   if (!parsed) return res.status(400).json({ error: 'Invalid image payload' });
   if (parsed.bytes > 2 * 1024 * 1024) return res.status(413).json({ error: 'Cover exceeds 2MB limit' });
-  if (isGitHubWriteBlocked()) {
-    const retryAfterSec = Math.max(1, Math.ceil((githubRateLimitBlockedUntil - Date.now()) / 1000));
-    res.setHeader('Retry-After', String(retryAfterSec));
-    return res.status(429).json({ error: 'Sync backend rate limited, retry shortly' });
+  if (!r2.isR2Configured()) {
+    return res.status(503).json({ error: 'Novel storage (R2) is not configured yet' });
   }
   try {
     await writeCoverData(key, book, { mime: parsed.mime, base64: parsed.base64 });
     return res.json({ ok: true, coverPath: coverPublicPath(key, book) });
   } catch (e) {
-    if (e && e.code === 'GITHUB_RATE_LIMIT') {
-      const retryAfterSec = Math.max(1, Math.ceil(((e.retryAfterMs || 0) / 1000)));
-      res.setHeader('Retry-After', String(retryAfterSec));
-      return res.status(429).json({ error: 'Sync backend rate limited, retry shortly' });
-    }
     return res.status(500).json({ error: 'Failed to save cover' });
   }
 }));
@@ -844,19 +559,12 @@ app.post('/api/chapter', safeAsync(async (req, res) => {
   if (!key) return res.status(400).json({ error: 'Missing sync key' });
   if (!chapterId) return res.status(400).json({ error: 'Missing chapter id' });
   if (!chapter || typeof chapter !== 'object') return res.status(400).json({ error: 'Missing chapter data' });
-  if (isGitHubWriteBlocked()) {
-    const retryAfterSec = Math.max(1, Math.ceil((githubRateLimitBlockedUntil - Date.now()) / 1000));
-    res.setHeader('Retry-After', String(retryAfterSec));
-    return res.status(429).json({ error: 'Sync backend rate limited, retry shortly' });
+  if (!r2.isR2Configured()) {
+    return res.status(503).json({ error: 'Novel storage (R2) is not configured yet' });
   }
   try {
     await writeChapterData(key, chapterId, chapter);
   } catch (e) {
-    if (e && e.code === 'GITHUB_RATE_LIMIT') {
-      const retryAfterSec = Math.max(1, Math.ceil(((e.retryAfterMs || 0) / 1000)));
-      res.setHeader('Retry-After', String(retryAfterSec));
-      return res.status(429).json({ error: 'Sync backend rate limited, retry shortly' });
-    }
     throw e;
   }
   return res.json({ ok: true, id: chapterId });
@@ -874,21 +582,14 @@ app.post('/api/state', safeAsync(async (req, res) => {
   const key = (req.headers['x-sync-key'] || '').toString().trim();
   const profileId = normalizeProfileId(req.headers['x-profile-id'] || 'izaiah');
   if (!key) return res.status(400).json({ error: 'Missing sync key' });
-  if (isGitHubWriteBlocked()) {
-    const retryAfterSec = Math.max(1, Math.ceil((githubRateLimitBlockedUntil - Date.now()) / 1000));
-    res.setHeader('Retry-After', String(retryAfterSec));
-    return res.status(429).json({ error: 'Sync backend rate limited, retry shortly' });
+  if (!r2.isR2Configured()) {
+    return res.status(503).json({ error: 'Novel storage (R2) is not configured yet' });
   }
   const data = await readStateData(key);
   const next = mergeProfileState(data, profileId, req.body || {});
   try {
     await writeStateData(key, next);
   } catch (e) {
-    if (e && e.code === 'GITHUB_RATE_LIMIT') {
-      const retryAfterSec = Math.max(1, Math.ceil(((e.retryAfterMs || 0) / 1000)));
-      res.setHeader('Retry-After', String(retryAfterSec));
-      return res.status(429).json({ error: 'Sync backend rate limited, retry shortly' });
-    }
     throw e;
   }
   return res.json({ ok: true, profileId });
@@ -900,10 +601,8 @@ app.post('/api/library', safeAsync(async (req, res) => {
   const replaceMode = (req.headers['x-sync-replace'] || '').toString().trim() === '1';
   const partialMode = (req.headers['x-sync-partial'] || '').toString().trim();
   if (!key) return res.status(400).json({ error: 'Missing sync key' });
-  if (isGitHubWriteBlocked()) {
-    const retryAfterSec = Math.max(1, Math.ceil((githubRateLimitBlockedUntil - Date.now()) / 1000));
-    res.setHeader('Retry-After', String(retryAfterSec));
-    return res.status(429).json({ error: 'Sync backend rate limited, retry shortly' });
+  if (!r2.isR2Configured()) {
+    return res.status(503).json({ error: 'Novel storage (R2) is not configured yet' });
   }
   if (partialMode === 'progress') {
     const existing = (await readKeyData(key)) || (await readLegacyValue(key)) || {};
@@ -917,11 +616,6 @@ app.post('/api/library', safeAsync(async (req, res) => {
     try {
       await writeKeyData(key, next);
     } catch (e) {
-      if (e && e.code === 'GITHUB_RATE_LIMIT') {
-        const retryAfterSec = Math.max(1, Math.ceil(((e.retryAfterMs || 0) / 1000)));
-        res.setHeader('Retry-After', String(retryAfterSec));
-        return res.status(429).json({ error: 'Sync backend rate limited, retry shortly' });
-      }
       throw e;
     }
     return res.json({ ok: true, partialMode: 'progress' });
