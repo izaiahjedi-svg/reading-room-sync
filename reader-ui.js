@@ -634,7 +634,8 @@ function renderTopbar(){
   searchInput.placeholder = isBookRoute ? 'Search this title' : 'Search title, genre, or author';
   searchInput.oninput = (e) => {
     view.search = e.target.value;
-    render();
+    renderLibrary();
+    applyReaderChromeState();
   };
 
   const profileSwitcher = document.createElement('div');
