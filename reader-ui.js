@@ -512,7 +512,11 @@ async function editChapter(id){
     const data = await dataBridge.getChapter(id);
     if (data) {
       await dataBridge.saveChapter(id, { ...data, title });
-      if (syncKey) await syncBridge.pushChapter(id, { ...data, title });
+      if (syncKey) {
+        syncBridge.pushChapter(id);
+        const ok = await syncBridge.pushChapter(id, { ...data, title });
+        if (ok) syncBridge.clearChapterPending(id);
+      }
     }
 
     if (syncKey) await syncBridge.pushLibrary();
