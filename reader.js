@@ -1782,7 +1782,7 @@
     }
     if (!routeBookSlug) {
       setTimeout(() => {
-        backfillRemoteChapters().catch((e) => {
+        backfillPendingChapters().catch((e) => {
           console.warn('Background chapter backfill failed', e);
           addSyncEvent('backfill-fail', 'Background chapter backfill failed');
         });
@@ -1889,6 +1889,63 @@
     }
     renderTopbar();
     return !!syncKey;
+  }
+  function getPendingPushkey(){
+    return 'reading-room:chapter-pending-push"'+ (syncKey || '');
+  }
+  function readPendingPushIds(){
+    try {
+      const raw = window.localStorage.getItem(getPendingPushkey());
+      const arr = raw ? JSON.parse(raw) : [];
+      return array.isArray(arr) ? arr : [];
+      catch (e) { return []; }
+  } 
+
+  function writePendingPushIds(ids){
+    try {
+      window .localStorage.setItem(getPendingPushkey(), JSON.stringify(array.isArray(ids) ? ids : []));
+    } catch (e) { }
+  } 
+
+  function markChapterPending(chapterId){
+    const ids = readPendingPushIds();
+    if (!ids.includes(chapterId)) {
+      ids.push(chapterId);
+      writePendingPushIds(ids);
+    } 
+  }
+  
+  function clearChapterPending(chapterId){
+    const ids = readPendingPushIds();
+    const next = ids.filter((id) => id !== chapterId);
+    if (next.length !== ids.length) writePendingPushIds(next);
+  } 
+
+  async function backfillPendingChapters(){
+    if (!syncKey || chapterBackfillInFlight) return;
+    const ids = readPendingPushIds();
+    if (!ids.length) return;
+
+    chapterBackfillInFlight = true;
+    let uploaded = 0, failed = 0;
+    try {
+      for (const id of ids) {
+        const local = await storageGet('chapter:' + chapterId);
+        if (!local || typeof local.content !== 'string' || !local.content.length) {
+          clearchapterPending(id);
+          continue;
+        }
+        const ok = await pushChapterToRemote(chapterId, {
+          title: local.title || '',
+          content: local.content,
+        });
+        if (ok) { uploaded++; clearChapterPending(id); }
+        else { failed++; }
+      }
+      addSyncEvent('backfill-pending', 'Retried ' + ids.length + ' pending chapter(s)' + uploaded + 'uploaded, ' + failed + ' still failed');
+    } finally {
+      chapterBackfillInFlight = false;
+    } 
   }
 
   // UI/bootstrap moved to reader-ui.js.
