@@ -136,17 +136,21 @@ async function buildLibraryFromFiles(files) {
 
     const pageIndex = chapter.pages.length + 1;
     const dataUrl = await readFileAsDataUrl(file);
-    await mangaApi('/api/manga/page', {
+    const pageResponse = await mangaApi('/api/manga/page', {
       method: 'POST',
       body: JSON.stringify({ series: seriesName, chapter: chapterName, page: pageIndex, dataUrl }),
     });
+    const pageResult = await pageResponse.json();
     if (pageIndex === 1) {
-      await mangaApi('/api/manga/cover', {
+      const coverResponse = await mangaApi('/api/manga/cover', {
         method: 'POST',
         body: JSON.stringify({ series: seriesName, dataUrl }),
       });
+      const coverResult = await coverResponse.json();
+      const seriesEntry = seriesMap.get(seriesName);
+      if (seriesEntry) seriesEntry.coverV = coverResult.v || '';
     }
-    chapter.pages.push({ name: parts[parts.length - 1], page: pageIndex });
+    chapter.pages.push({ name: parts[parts.length - 1], page: pageIndex, v: pageResult.v || '' });
   }
 
   const library = Array.from(seriesMap.values());
@@ -171,11 +175,12 @@ async function saveMangaLibrary() {
   state.library.forEach((entry) => {
     series[entry.name] = {
       name: entry.name,
+      coverV: entry.coverV || '',
       chapters: entry.chapters.map((chapter) => ({
         key: chapter.key,
         title: chapter.title,
         chapterNumber: chapter.chapterNumber,
-        pages: chapter.pages.map((page) => ({ name: page.name, page: page.page })),
+        pages: chapter.pages.map((page) => ({ name: page.name, page: page.page, v: page.v || '' })),
       })),
     };
   });
@@ -191,6 +196,7 @@ async function loadMangaLibrary() {
   const seriesMap = payload && payload.data && payload.data.series ? payload.data.series : {};
   state.library = Object.values(seriesMap).map((series) => ({
     name: series.name,
+    coverV: series.coverV || '',
     chapters: (series.chapters || []).map((chapter) => ({
       key: chapter.key,
       title: chapter.title || chapter.key,
@@ -198,6 +204,7 @@ async function loadMangaLibrary() {
       pages: (chapter.pages || []).map((page) => ({
         name: page.name || String(page.page).padStart(3, '0') + '.webp',
         page: page.page,
+        v: page.v || '',
       })),
     })),
   }));
@@ -205,8 +212,16 @@ async function loadMangaLibrary() {
 }
 
 function pageUrl(series, chapter, page) {
-  const params = new URLSearchParams({ series, chapter, page: String(page) });
+  const pageNumber = page && typeof page === 'object' ? page.page : page;
+  const params = new URLSearchParams({ series, chapter, page: String(pageNumber) });
+  if (page.v) params.set('v', page.v);
   return '/api/manga/page?' + params.toString();
+}
+
+function coverUrl(series) {
+  const params = new URLSearchParams({ series });
+  if (series.coverV) params.set('v', series.coverV);
+  return '/api/manga/cover?' + params.toString();
 }
 
 function readFileAsDataUrl(file) {
@@ -317,7 +332,7 @@ function renderHome() {
     const latest = series.chapters[series.chapters.length - 1] || null;
     return [
       '<article class="book-card">',
-      '<div class="book-cover"></div>',
+      (series.coverV ? '<img class="book-cover" src="' + escapeAttr(coverUrl(series)) + '" alt="" />' : '<div class="book-cover"></div>'),
       '<div class="book-meta">',
       '<div class="book-title">' + escapeHtml(series.name) + '</div>',
       '<div class="book-sub">' + series.chapters.length + ' chapters' + (latest ? (' • Latest: ' + escapeHtml(latest.title)) : '') + '</div>',
@@ -370,7 +385,7 @@ function renderTitlePage() {
     '<div class="library-wrap">',
     '<div class="title-layout">',
     '<aside class="title-sidebar">',
-    '<div class="title-sidebar-cover-fallback">MANGA</div>',
+    series.coverV ? '<img class="title-sidebar-cover" src="' + escapeAttr(coverUrl(series)) + '" alt="' + escapeAttr(series.name) + ' cover" />' : '<div class="title-sidebar-cover-fallback">MANGA</div>',
     '<div class="title-sidebar-body">',
     '<h2>' + escapeHtml(series.name) + '</h2>',
     '<div class="title-tag-row"><span class="title-tag">Manga</span><span class="title-tag">No Volumes</span></div>',
@@ -467,7 +482,7 @@ function renderReader() {
   const prevMeta = idx > 0 ? chapters[idx - 1] : null;
   const nextMeta = idx < chapters.length - 1 ? chapters[idx + 1] : null;
   const pageMarkup = chapter.pages
-    .map((page) => '<img loading="lazy" decoding="async" alt="' + escapeAttr(chapter.title + ' page ' + page.name) + '" src="' + pageUrl(series.name, chapter.key, page.page) + '" />')
+    .map((page) => '<img loading="lazy" decoding="async" alt="' + escapeAttr(chapter.title + ' page ' + page.name) + '" src="' + pageUrl(series.name, chapter.key, page) + '" />')
     .join('');
 
   main.innerHTML = [

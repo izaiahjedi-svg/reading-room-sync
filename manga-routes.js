@@ -36,6 +36,13 @@ function mangaLibraryKey() {
   return 'manga/library-index.json';
 }
 
+async function updateMangaLibrary(r2, update) {
+  const library = (await r2.getJson(mangaLibraryKey())) || { version: 1, series: {} };
+  library.series = (library.series && typeof library.series === 'object') ? library.series : {};
+  update(library.series);
+  await r2.putJson(mangaLibraryKey(), library);
+}
+
 function parseDataUrlImage(dataUrl) {
   const m = /^data:([^;,]+);base64,([a-z0-9+/=]+)$/i.exec((dataUrl || '').trim());
   if (!m) return null;
@@ -64,7 +71,7 @@ function registerMangaRoutes(app, r2, safeAsync) {
     const obj = await r2.getObject(mangaPageKey(series, chapter, pageIndex));
     if (!obj) return res.status(404).json({ error: 'Page not found' });
     res.setHeader('Content-Type', obj.contentType);
-    res.setHeader('Cache-Control', 'public, max-age=3600, must-revalidate');
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
     return res.send(obj.buffer);
   }));
 
@@ -76,8 +83,23 @@ function registerMangaRoutes(app, r2, safeAsync) {
     }
     const parsed = parseDataUrlImage(dataUrl);
     if (!parsed) return res.status(400).json({ error: 'Invalid image payload' });
-    await r2.putObject(mangaPageKey(series, chapter, page), parsed.buffer, parsed.mime);
-    return res.json({ ok: true });
+    const result = await r2.putObject(mangaPageKey(series, chapter, page), parsed.buffer, parsed.mime);
+    const version = result && result.etag ? result.etag : '';
+    await updateMangaLibrary(r2, (seriesMap) => {
+      const seriesEntry = seriesMap[series] || { name: series, chapters: [] };
+      const chapters = Array.isArray(seriesEntry.chapters) ? seriesEntry.chapters : [];
+      const chapterEntry = chapters.find((entry) => entry && entry.key === chapter) || { key: chapter, title: chapter, pages: [] };
+      if (!chapters.includes(chapterEntry)) chapters.push(chapterEntry);
+      const pages = Array.isArray(chapterEntry.pages) ? chapterEntry.pages : [];
+      const pageNumber = Number(page);
+      const pageEntry = pages.find((entry) => Number(entry && entry.page) === pageNumber) || { page: pageNumber };
+      pageEntry.v = version;
+      if (!pages.includes(pageEntry)) pages.push(pageEntry);
+      chapterEntry.pages = pages;
+      seriesEntry.chapters = chapters;
+      seriesMap[series] = seriesEntry;
+    });
+    return res.json({ ok: true, v: version });
   }));
 
   // --- Cover ---
@@ -89,7 +111,7 @@ function registerMangaRoutes(app, r2, safeAsync) {
     const obj = await r2.getObject(mangaCoverKey(series));
     if (!obj) return res.status(404).json({ error: 'Cover not found' });
     res.setHeader('Content-Type', obj.contentType);
-    res.setHeader('Cache-Control', 'public, max-age=3600, must-revalidate');
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
     return res.send(obj.buffer);
   }));
 
@@ -99,8 +121,14 @@ function registerMangaRoutes(app, r2, safeAsync) {
     if (!series) return res.status(400).json({ error: 'Missing series' });
     const parsed = parseDataUrlImage(dataUrl);
     if (!parsed) return res.status(400).json({ error: 'Invalid image payload' });
-    await r2.putObject(mangaCoverKey(series), parsed.buffer, parsed.mime);
-    return res.json({ ok: true });
+    const result = await r2.putObject(mangaCoverKey(series), parsed.buffer, parsed.mime);
+    const version = result && result.etag ? result.etag : '';
+    await updateMangaLibrary(r2, (seriesMap) => {
+      const seriesEntry = seriesMap[series] || { name: series, chapters: [] };
+      seriesEntry.coverV = version;
+      seriesMap[series] = seriesEntry;
+    });
+    return res.json({ ok: true, v: version });
   }));
 
   // --- Library index (series -> chapters -> page counts, titles, etc.) ---

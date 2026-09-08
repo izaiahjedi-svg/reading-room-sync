@@ -63,13 +63,13 @@ async function streamToBuffer(stream) {
 // Uploads a buffer to R2 under `key` (e.g. "manga/one-piece/chapter-1/003.webp").
 async function putObject(key, buffer, contentType) {
   if (!s3Client) throw Object.assign(new Error('R2 not configured'), { code: 'R2_NOT_CONFIGURED' });
-  await s3Client.send(new PutObjectCommand({
+  const res = await s3Client.send(new PutObjectCommand({
     Bucket: r2Config.bucket,
     Key: key,
     Body: buffer,
     ContentType: contentType || 'application/octet-stream',
   }));
-  return true;
+  return { etag: (res.ETag || '').replace(/"/g, '') };
 }
 
 // Returns { buffer, contentType } or null if the object doesn't exist.
