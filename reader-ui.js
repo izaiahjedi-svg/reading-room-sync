@@ -124,7 +124,10 @@ function clearChapterParamFromUrl(){
 }
 
 fileInput.addEventListener('change', (e) => handleUpload(e.target.files, fileInput));
-folderInput.addEventListener('change', (e) => handleUpload(e.target.files, folderInput));
+folderInput.addEventListener('change', (e) => {
+  if (typeof adminMangaUploadActive !== 'undefined' && adminMangaUploadActive) return;
+  handleUpload(e.target.files, folderInput);
+});
 if (coverInput) coverInput.addEventListener('change', async (e) => {
   const file = (e.target.files && e.target.files[0]) ? e.target.files[0] : null;
   if (!file) return;
@@ -1389,98 +1392,6 @@ function renderLibrary(){
 
   if (!isBookPage){
     renderHomePage(wrap);
-
-    if (view.debugOpen) {
-      startLiveDebugRefresh();
-      const panel = document.createElement('div');
-      panel.className = 'continue-card';
-      const d = mainPageDebug.data;
-      const b = (d && d.backfill) ? d.backfill : backfillDebug;
-      const c = (d && d.scopedCleanup) ? d.scopedCleanup : scopedCleanupDebug;
-      const eventRows = (d && d.events && d.events.length)
-        ? d.events.map((e) => {
-          const t = new Date(e.at || Date.now()).toLocaleTimeString();
-          return '<div>[' + esc(t) + '] ' + esc(e.kind || 'info') + ': ' + esc(e.message || '') + '</div>';
-        }).join('')
-        : '<div>No sync events yet.</div>';
-      const statusLine = mainPageDebug.loading
-        ? 'Collecting diagnostics...'
-        : (mainPageDebug.error ? ('Diagnostics error: ' + esc(mainPageDebug.error)) : 'Diagnostics snapshot');
-      panel.innerHTML = `
-        <div style="min-width:260px;">
-          <div class="label">Debug: Sync & Storage</div>
-          <div style="font-size:13px;color:var(--ink-soft);margin-top:4px;">${statusLine}</div>
-          <div style="font-size:12px;color:var(--ink-soft);margin-top:10px;line-height:1.6;">
-            <div>Sync attempts: ${syncDebug.attempts} | success: ${syncDebug.successes} | fail: ${syncDebug.failures}</div>
-            <div>Last reason: ${esc(syncDebug.lastReason || 'n/a')}</div>
-            <div>Current sync: ${d && d.syncStatus ? esc((d.syncStatus.state || 'idle') + ' - ' + (d.syncStatus.message || '')) : '-'}</div>
-            <div>Remote library error: ${d && d.remoteLibraryErrorStatus ? d.remoteLibraryErrorStatus : 'none'}${d && d.remoteLibraryRetryAfterSec ? ' | retry after ~' + d.remoteLibraryRetryAfterSec + 's' : ''}</div>
-            <div>Last payload: ${formatBytes(syncDebug.lastPayloadBytes)} | last sync time: ${syncDebug.lastDurationMs} ms</div>
-            <div>Recovery pulls: ${syncDebug.recoveryAttempts}</div>
-            <div>Books: ${d ? d.books : '-'} | Chapters: ${d ? d.chapters : '-'}</div>
-            <div>Browser role: ${d ? esc(d.browserRole || 'n/a') : '-'}</div>
-            <div>Chapter coverage: ${d ? (d.backfillPercent + '%') : '-'}</div>
-            <div>Payload size now: ${d ? formatBytes(d.payloadBytes) : '-'}</div>
-            <div>Stored keys: ${d ? d.keysTotal : '-'} (global ${d ? d.keysGlobal : '-'}, scoped ${d ? d.keysScoped : '-'})</div>
-            <div>Global logical keys: ${d ? d.keysGlobalLogical : '-'} | chunk fragment keys: ${d ? d.keysChunk : '-'}</div>
-            <div>Missing local chapter blobs: ${d ? d.missingChapterCount : '-'}</div>
-            <div>Backfill run: ${b.active ? 'active' : 'idle'} | scanned ${b.scanned || 0}/${b.total || 0} | checked ${b.checked || 0} | uploaded ${b.uploaded || 0} | failed ${b.failed || 0}</div>
-            <div>Backfill state: ${b.complete ? 'complete' : 'incomplete'} | cursor ${b.cursor || 0} | runs ${b.runs || 0}</div>
-            <div>Backfill note: ${esc(b.message || 'n/a')}</div>
-            <div>Diagnostics captured: ${d && d.capturedAt ? new Date(d.capturedAt).toLocaleTimeString() : 'not yet'}</div>
-            <div>Scoped cleanup: ${c.active ? 'active' : 'idle'} | deleted ${c.deleted || 0} | remaining ~${c.remaining || 0} | runs ${c.runs || 0}</div>
-            <div>Scoped cleanup note: ${esc(c.message || 'n/a')}</div>
-            <div style="margin-top:8px;font-weight:600;">Recent sync events</div>
-            ${eventRows}
-          </div>
-        </div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;align-self:flex-start;">
-          <button id="refreshDebugBtn">Refresh diagnostics</button>
-          <button id="runBackfillBtn">Run backfill now</button>
-          <button id="runCleanupBtn">Run scoped cleanup</button>
-          <button id="copyDebugBtn">Copy debug report</button>
-        </div>`;
-      wrap.appendChild(panel);
-      const refreshBtn = panel.querySelector('#refreshDebugBtn');
-      if (refreshBtn) refreshBtn.onclick = () => refreshMainPageDebug();
-      const runBackfillBtn = panel.querySelector('#runBackfillBtn');
-      if (runBackfillBtn) runBackfillBtn.onclick = async () => {
-        runBackfillBtn.disabled = true;
-        runBackfillBtn.textContent = 'Running...';
-        try {
-          await runBackfillNow();
-        } finally {
-          runBackfillBtn.disabled = false;
-          runBackfillBtn.textContent = 'Run backfill now';
-        }
-      };
-      const runCleanupBtn = panel.querySelector('#runCleanupBtn');
-      if (runCleanupBtn) runCleanupBtn.onclick = async () => {
-        runCleanupBtn.disabled = true;
-        runCleanupBtn.textContent = 'Running...';
-        try {
-          await runScopedCleanupNow();
-        } finally {
-          runCleanupBtn.disabled = false;
-          runCleanupBtn.textContent = 'Run scoped cleanup';
-        }
-      };
-      const copyDebugBtn = panel.querySelector('#copyDebugBtn');
-      if (copyDebugBtn) copyDebugBtn.onclick = async () => {
-        copyDebugBtn.disabled = true;
-        const prev = copyDebugBtn.textContent;
-        try {
-          await copyDebugReport();
-          copyDebugBtn.textContent = 'Copied';
-        } catch (e) {
-          copyDebugBtn.textContent = 'Copy failed';
-        }
-        setTimeout(() => {
-          copyDebugBtn.disabled = false;
-          copyDebugBtn.textContent = prev;
-        }, 1200);
-      };
-    }
 
     if (view.transferOpen){
       const panel = document.createElement('div');

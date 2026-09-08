@@ -59,6 +59,84 @@ function getDisplaySortedChapters(items){
 }
 
 let pendingAdminCoverDataUrl = null;
+let pendingAdminMangaCoverDataUrl = null;
+let adminMangaUploadActive = false;
+let adminDebugTimer = null;
+
+async function mangaAdminApi(path, options) {
+  const response = await fetch(path, Object.assign({ headers: { 'Content-Type': 'application/json' } }, options || {}));
+  if (!response.ok) throw new Error('Manga request failed (' + response.status + ')');
+  return response;
+}
+
+async function handleAdminMangaFolder(files) {
+  const imageFiles = Array.from(files || []).filter((file) => /\.(jpg|jpeg|png|webp)$/i.test(file.name || ''));
+  const seriesName = (document.getElementById('adminMangaTitle') && document.getElementById('adminMangaTitle').value || '').trim();
+  const status = document.getElementById('adminUploadStatus');
+  if (!seriesName) {
+    if (status) status.textContent = 'Enter a manga series title first';
+    return;
+  }
+  if (!imageFiles.length) {
+    if (status) status.textContent = 'No manga image files found';
+    return;
+  }
+
+  const sortedFiles = imageFiles.sort((a, b) => String(a.webkitRelativePath || a.name).localeCompare(String(b.webkitRelativePath || b.name), undefined, { numeric:true }));
+  const chapterGroups = new Map();
+  const pageVersions = new Map();
+  sortedFiles.forEach((file) => {
+    const parts = String(file.webkitRelativePath || file.name).replaceAll('\\', '/').split('/').filter(Boolean);
+    const chapter = parts.length >= 3 ? parts[parts.length - 2] : 'chapter-0001';
+    const group = chapterGroups.get(chapter) || [];
+    group.push(file);
+    chapterGroups.set(chapter, group);
+  });
+
+  adminMangaUploadActive = true;
+  try {
+    let completed = 0;
+    for (const [chapter, filesForChapter] of chapterGroups) {
+      for (let i = 0; i < filesForChapter.length; i++) {
+        if (status) status.textContent = 'Uploading manga ' + (completed + 1) + ' of ' + sortedFiles.length + ': ' + filesForChapter[i].name;
+        const dataUrl = await readAdminFileAsDataUrl(filesForChapter[i]);
+        const pageResponse = await mangaAdminApi('/api/manga/page', {
+          method: 'POST',
+          body: JSON.stringify({ series: seriesName, chapter, page: i + 1, dataUrl }),
+        });
+        const pageResult = await pageResponse.json();
+        const versions = pageVersions.get(chapter) || [];
+        versions[i] = pageResult.v || '';
+        pageVersions.set(chapter, versions);
+        completed++;
+      }
+    }
+
+    const response = await mangaAdminApi('/api/manga/library');
+    const payload = await response.json();
+    const library = payload && payload.data && payload.data.series ? payload.data : { version:1, series:{} };
+    library.series = library.series || {};
+    const existing = library.series[seriesName] || { name:seriesName, chapters:[] };
+    existing.name = seriesName;
+    existing.author = (document.getElementById('adminMangaAuthor').value || '').trim();
+    existing.tags = (document.getElementById('adminMangaTags').value || '').split(',').map((value) => value.trim()).filter(Boolean);
+    existing.description = (document.getElementById('adminMangaDescription').value || '').trim();
+    existing.chapters = Array.isArray(existing.chapters) ? existing.chapters : [];
+    chapterGroups.forEach((filesForChapter, chapter) => {
+      const entry = existing.chapters.find((item) => item.key === chapter) || { key:chapter, title:chapter, pages:[] };
+      const versions = pageVersions.get(chapter) || [];
+      entry.pages = filesForChapter.map((file, index) => ({ name:file.name, page:index + 1, v:versions[index] || '' }));
+      if (!existing.chapters.includes(entry)) existing.chapters.push(entry);
+    });
+    library.series[seriesName] = existing;
+    await mangaAdminApi('/api/manga/library', { method:'POST', body:JSON.stringify(library) });
+    if (status) status.textContent = 'Finished: ' + completed + ' manga page(s) uploaded';
+  } catch (error) {
+    if (status) status.textContent = 'Manga upload failed: ' + error.message;
+  } finally {
+    adminMangaUploadActive = false;
+  }
+}
 
 function adminSetStatus(message) {
   const status = document.getElementById('adminSaveState');
@@ -98,11 +176,6 @@ function parseAdminChapterLines(text) {
       return { volume: 'Chapters', title: parts[0] || '' };
     })
     .filter((entry) => entry.title);
-}
-
-function volumeSortNum(name) {
-  const m = (name || '').match(/(\d{1,4})/);
-  return m ? parseInt(m[1], 10) : null;
 }
 
 function escAttr(value) {
@@ -261,6 +334,18 @@ function renderAdminPage() {
         </section>
       </div>
 
+      <section class="admin-panel admin-panel-wide">
+        <div class="home-section-head"><h2>Manga Series</h2><span class="home-subtle">R2-backed manga management</span></div>
+        <div class="admin-grid-live">
+          <div class="admin-field"><label for="adminMangaTitle">Title</label><input id="adminMangaTitle" /></div>
+          <div class="admin-field"><label for="adminMangaAuthor">Author</label><input id="adminMangaAuthor" /></div>
+          <div class="admin-field admin-wide"><label for="adminMangaTags">Tags</label><input id="adminMangaTags" placeholder="Action, Fantasy" /></div>
+          <div class="admin-field admin-wide"><label for="adminMangaDescription">Description</label><textarea id="adminMangaDescription" class="admin-textarea"></textarea></div>
+          <div class="admin-field admin-wide"><label>Cover</label><div id="adminMangaCoverPreviewWrap"><div class="cover-placeholder">No cover yet</div></div><div class="admin-cover-actions"><button id="adminMangaUploadCoverBtn" type="button">Upload cover</button><button id="adminMangaSaveBtn" class="primary" type="button">Save series</button></div></div>
+          <div class="admin-field admin-wide"><label>Chapter pages</label><div class="admin-action-row"><button id="adminMangaAddFolderBtn" type="button">Choose manga folder</button></div><div class="admin-help">Upload status appears in the existing admin upload status indicator.</div></div>
+        </div>
+      </section>
+
       <section class="admin-panel admin-panel-wide admin-lower-panel">
         <div class="home-section-head">
           <h2>Profile Activity</h2>
@@ -286,12 +371,13 @@ function renderAdminPage() {
           <h2>Debug Stats</h2>
           <span class="home-subtle">${esc(stats.lastReason)}</span>
         </div>
-        <div class="admin-debug-grid">
+        <div class="admin-debug-grid" id="adminDebugGrid">
           <div class="admin-debug-box"><span>Sync attempts</span><strong>${stats.syncAttempts}</strong></div>
           <div class="admin-debug-box"><span>Sync successes</span><strong>${stats.syncSuccesses}</strong></div>
           <div class="admin-debug-box"><span>Sync failures</span><strong>${stats.syncFailures}</strong></div>
           <div class="admin-debug-box"><span>Last sync</span><strong>${esc(stats.lastSyncAt)}</strong></div>
         </div>
+        <div class="admin-action-row" style="margin:12px 0;"><button id="adminCopyDebugBtn" type="button">Copy debug report</button></div>
         <table class="admin-table">
           <thead>
             <tr>
@@ -318,6 +404,67 @@ function renderAdminPage() {
   const adminUploadVolumeInput = document.getElementById('adminUploadVolumeInput');
   const adminUploadVolumeSelect = document.getElementById('adminUploadVolumeSelect');
   const adminUploadStatus = document.getElementById('adminUploadStatus');
+  const mangaCoverInput = document.getElementById('mangaCoverInput');
+  const mangaUploadCoverBtn = document.getElementById('adminMangaUploadCoverBtn');
+  const mangaSaveBtn = document.getElementById('adminMangaSaveBtn');
+  const mangaFolderBtn = document.getElementById('adminMangaAddFolderBtn');
+
+  async function saveMangaSeries() {
+    const title = (document.getElementById('adminMangaTitle').value || '').trim();
+    if (!title) {
+      adminSetStatus('Manga title required');
+      return;
+    }
+    try {
+      const response = await mangaAdminApi('/api/manga/library');
+      const payload = await response.json();
+      const library = payload && payload.data && payload.data.series ? payload.data : { version:1, series:{} };
+      library.series = library.series || {};
+      const existing = library.series[title] || { name:title, chapters:[] };
+      existing.name = title;
+      existing.author = (document.getElementById('adminMangaAuthor').value || '').trim();
+      existing.tags = (document.getElementById('adminMangaTags').value || '').split(',').map((value) => value.trim()).filter(Boolean);
+      existing.description = (document.getElementById('adminMangaDescription').value || '').trim();
+      if (pendingAdminMangaCoverDataUrl) {
+        const coverResponse = await mangaAdminApi('/api/manga/cover', { method:'POST', body:JSON.stringify({ series:title, dataUrl:pendingAdminMangaCoverDataUrl }) });
+        const coverResult = await coverResponse.json();
+        existing.coverV = coverResult.v || existing.coverV || '';
+      }
+      library.series[title] = existing;
+      await mangaAdminApi('/api/manga/library', { method:'POST', body:JSON.stringify(library) });
+      pendingAdminMangaCoverDataUrl = null;
+      adminSetStatus('Manga series saved');
+      const preview = document.getElementById('adminMangaCoverPreviewWrap');
+      if (preview) preview.innerHTML = '<div class="cover-placeholder">Saved</div>';
+    } catch (error) {
+      adminSetStatus('Manga save failed: ' + error.message);
+    }
+  }
+
+  if (mangaUploadCoverBtn && mangaCoverInput) mangaUploadCoverBtn.onclick = () => mangaCoverInput.click();
+  if (mangaCoverInput) mangaCoverInput.onchange = async (event) => {
+    const file = event.target.files && event.target.files[0];
+    if (!file) return;
+    pendingAdminMangaCoverDataUrl = await readAdminFileAsDataUrl(file);
+    const preview = document.getElementById('adminMangaCoverPreviewWrap');
+    if (preview) preview.innerHTML = '<div class="cover-placeholder">Cover ready to save</div>';
+    mangaCoverInput.value = '';
+  };
+  if (mangaSaveBtn) mangaSaveBtn.onclick = saveMangaSeries;
+  if (mangaFolderBtn) mangaFolderBtn.onclick = () => {
+    const title = (document.getElementById('adminMangaTitle').value || '').trim();
+    if (!title) {
+      adminSetStatus('Enter a manga series title first');
+      return;
+    }
+    adminMangaUploadActive = true;
+    folderInput.value = '';
+    folderInput.click();
+  };
+  if (folderInput) folderInput.addEventListener('change', (event) => {
+    if (!adminMangaUploadActive) return;
+    handleAdminMangaFolder(event.target.files).finally(() => { folderInput.value = ''; });
+  });
 
   function updateAdminVolumeOptions(bookName) {
     if (!adminUploadVolumeSelect) return;
@@ -551,6 +698,38 @@ function renderAdminPage() {
     const ok = await syncBridge.pushLibrary();
     adminSetStatus(ok ? 'Synced' : 'Sync failed');
   };
+  const debugGrid = document.getElementById('adminDebugGrid');
+  const copyDebugBtn = document.getElementById('adminCopyDebugBtn');
+  async function refreshAdminDebug() {
+    if (!debugGrid || typeof collectMainPageDebugData !== 'function') return;
+    try {
+      const debug = await collectMainPageDebugData();
+      const backfill = debug.backfill || {};
+      const cleanup = debug.scopedCleanup || {};
+      debugGrid.innerHTML = [
+        ['Sync attempts', syncDebug.attempts],
+        ['Sync successes', syncDebug.successes],
+        ['Sync failures', syncDebug.failures],
+        ['Sync duration', (syncDebug.lastDurationMs || 0) + ' ms'],
+        ['Payload size', formatBytes(debug.payloadBytes || 0)],
+        ['Missing local bodies', debug.missingChapterCount || 0],
+        ['Chapter coverage', (debug.backfillPercent || 0) + '%'],
+        ['Backfill scanned', (backfill.scanned || 0) + '/' + (backfill.total || 0)],
+        ['Backfill checked', backfill.checked || 0],
+        ['Backfill uploaded', backfill.uploaded || 0],
+        ['Backfill failed', backfill.failed || 0],
+        ['Backfill state', backfill.active ? 'Active' : (backfill.complete ? 'Complete' : 'Idle')],
+        ['Cleanup deleted', cleanup.deleted || 0],
+        ['Cleanup remaining', cleanup.remaining || 0],
+      ].map(([label, value]) => '<div class="admin-debug-box"><span>' + esc(label) + '</span><strong>' + esc(String(value)) + '</strong></div>').join('');
+    } catch (error) {
+      debugGrid.innerHTML = '<div class="admin-debug-box"><span>Diagnostics</span><strong>Failed</strong></div>';
+    }
+  }
+  if (copyDebugBtn && typeof copyDebugReport === 'function') copyDebugBtn.onclick = () => copyDebugReport();
+  if (adminDebugTimer) clearInterval(adminDebugTimer);
+  refreshAdminDebug();
+  adminDebugTimer = setInterval(refreshAdminDebug, 2000);
   if (bookSelect) bookSelect.onchange = () => loadBookForm(bookSelect.value);
 
   loadBookOptions();

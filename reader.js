@@ -291,8 +291,7 @@
       settings: { font:'Georgia, "Iowan Old Style", serif', fontSize:19, lineHeight:1.7, theme:'dark' }
     }
   };
-  const debugQueryEnabled = new URLSearchParams(window.location.search || '').get('debug') === '1';
-  let view = { mode:'library', chapterId:null, search:'', bookFilter:'', chapterSort:'book-volume-added', booksCollapsed:false, debugOpen:debugQueryEnabled, mobileChromeCollapsed:false };
+  let view = { mode:'library', chapterId:null, search:'', bookFilter:'', chapterSort:'book-volume-added', booksCollapsed:false, mobileChromeCollapsed:false };
   let saveTimer = null;
   let settingsSaveTimer = null;
   let pendingChapterTitle = '';
@@ -347,7 +346,6 @@
   };
   let syncEvents = [];
   let mainPageDebug = { loading:false, data:null, error:'', refreshStartedAt:0 };
-  let debugRefreshTimer = null;
   let pendingCoverDataUrl = null;
   let syncStatus = { state:'idle', at:0, message:'' };
   let lastRemoteLibraryErrorStatus = 0;
@@ -849,12 +847,10 @@
 
   async function runBackfillNow(){
     await backfillRemoteChapters();
-    if (view.debugOpen && !routeBookSlug) await refreshMainPageDebug();
   }
 
   async function runScopedCleanupNow(){
     await cleanupLegacyScopedKeys();
-    if (view.debugOpen && !routeBookSlug) await refreshMainPageDebug();
   }
 
   async function copyDebugReport(){
@@ -917,14 +913,6 @@
     }
   }
 
-  function startLiveDebugRefresh(){
-    if (debugRefreshTimer || routeBookSlug || !view.debugOpen) return;
-    debugRefreshTimer = setInterval(() => {
-      if (!view.debugOpen || view.mode !== 'library') return;
-      refreshMainPageDebug().catch(() => {});
-    }, 2000);
-    refreshMainPageDebug().catch(() => {});
-  }
 
   function hashString(str){
     let h = 2166136261;
