@@ -1177,6 +1177,7 @@
     const sameSig = !!(prev && prev.sig === signature && prev.storageVersion === CHAPTER_BACKFILL_STORAGE_VERSION);
     if (prev && prev.sig === signature && prev.storageVersion !== CHAPTER_BACKFILL_STORAGE_VERSION) {
       addSyncEvent('backfill-reset', 'Starting a fresh R2 backfill scan');
+      writeChapterBackfillState({});
     }
     if (sameSig && prev.complete) {
       backfillDebug.complete = true;
@@ -1891,19 +1892,21 @@
     return !!syncKey;
   }
   function getPendingPushkey(){
-    return 'reading-room:chapter-pending-push"'+ (syncKey || '');
+    return 'reading-room:chapter-pending-push:' + (syncKey || '');
   }
   function readPendingPushIds(){
     try {
       const raw = window.localStorage.getItem(getPendingPushkey());
       const arr = raw ? JSON.parse(raw) : [];
-      return array.isArray(arr) ? arr : [];
-      catch (e) { return []; }
-  } 
+      return Array.isArray(arr) ? arr : [];
+    } catch (e) { 
+      return []; 
+    }
+  }
 
   function writePendingPushIds(ids){
     try {
-      window .localStorage.setItem(getPendingPushkey(), JSON.stringify(array.isArray(ids) ? ids : []));
+      window.localStorage.setItem(getPendingPushkey(), JSON.stringify(Array.isArray(ids) ? ids : []));
     } catch (e) { }
   } 
 
@@ -1930,6 +1933,7 @@
     let uploaded = 0, failed = 0;
     try {
       for (const id of ids) {
+        const chapterId = id;
         const local = await storageGet('chapter:' + chapterId);
         if (!local || typeof local.content !== 'string' || !local.content.length) {
           clearchapterPending(id);
@@ -1948,4 +1952,4 @@
     } 
   }
 
-  // UI/bootstrap moved to reader-ui.js.
+  // UI/bootstrap moved to reader-ui.js
