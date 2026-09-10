@@ -12,6 +12,9 @@ const state = {
   importing: false,
   pageWidth: readStoredPageWidth(),
 };
+let mangaProfiles = {};
+let activeProfileId = 'izaiah';
+let mangaProfileState = {};
 
 const main = document.getElementById('main');
 const topbarActions = document.getElementById('topbarActions');
@@ -104,6 +107,38 @@ function storePageWidth(width) {
 
 function applyPageWidth() {
   document.documentElement.style.setProperty('--manga-page-max-width', state.pageWidth + 'px');
+}
+
+function getMangaProfileProgress() {
+  if (!mangaProfileState[activeProfileId]) mangaProfileState[activeProfileId] = { progress:{ lastChapterId:null, percents:{} } };
+  if (!mangaProfileState[activeProfileId].progress) mangaProfileState[activeProfileId].progress = { lastChapterId:null, percents:{} };
+  if (!mangaProfileState[activeProfileId].progress.percents) mangaProfileState[activeProfileId].progress.percents = {};
+  return mangaProfileState[activeProfileId].progress;
+}
+
+async function saveMangaProfileState() {
+  try {
+    await mangaApi('/api/manga/profile-state', { method:'POST', body:JSON.stringify(mangaProfileState) });
+  } catch (error) {
+    console.warn('Manga profile state save failed', error);
+  }
+}
+
+async function loadMangaProfileState() {
+  mangaProfiles = getDefaultProfiles();
+  const stored = getStoredActiveProfileId();
+  activeProfileId = mangaProfiles[stored] ? stored : 'izaiah';
+  storeActiveProfileId(activeProfileId);
+  try {
+    const response = await mangaApi('/api/manga/profile-state');
+    const payload = await response.json();
+    mangaProfileState = payload && payload.data && typeof payload.data === 'object' ? payload.data : {};
+  } catch (error) {
+    mangaProfileState = {};
+  }
+  Object.keys(mangaProfiles).forEach((id) => {
+    if (!mangaProfileState[id]) mangaProfileState[id] = { progress:{ lastChapterId:null, percents:{} } };
+  });
 }
 
 async function buildLibraryFromFiles(files) {
@@ -266,6 +301,11 @@ function openChapter(seriesName, chapterKey) {
   state.activeChapterKey = chapterKey;
   render();
   window.scrollTo(0, 0);
+  const progress = getMangaProfileProgress();
+  progress.lastChapterId = seriesName + '::' + chapterKey;
+  progress.lastActiveAt = Date.now();
+  progress.percents[progress.lastChapterId] = 100;
+  saveMangaProfileState();
 }
 
 function moveChapter(direction) {
@@ -292,20 +332,22 @@ function renderTopbar() {
     applyTheme(next);
   };
 
-  const importBtn = document.createElement('button');
-  importBtn.type = 'button';
-  importBtn.className = 'primary';
-  importBtn.textContent = state.importing ? 'Importing...' : 'Import Manga Folder';
-  importBtn.disabled = state.importing;
-  importBtn.onclick = openFolderPicker;
+  const profileSwitcher = document.createElement('div');
+  profileSwitcher.className = 'profile-switcher';
+  Object.entries(mangaProfiles).forEach(([id, profile]) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'profile-chip' + (id === activeProfileId ? ' active' : '');
+    button.textContent = profile.name;
+    button.onclick = async () => {
+      activeProfileId = id;
+      storeActiveProfileId(id);
+      render();
+    };
+    profileSwitcher.appendChild(button);
+  });
 
-  const novelsBtn = document.createElement('button');
-  novelsBtn.type = 'button';
-  novelsBtn.className = 'subtle';
-  novelsBtn.textContent = 'Novels';
-  novelsBtn.onclick = () => { window.location.href = '/reader.html'; };
-
-  topbarActions.append(novelsBtn, themeBtn, importBtn);
+  topbarActions.append(themeBtn, profileSwitcher);
 }
 
 function renderMessage(text) {
@@ -334,14 +376,16 @@ function render() {
 }
 
 function renderHome() {
+  const progress = getMangaProfileProgress();
   const allSeriesCards = state.library.map((series) => {
     const latest = series.chapters[series.chapters.length - 1] || null;
+    const readCount = series.chapters.filter((chapter) => progress.percents[series.name + '::' + chapter.key] >= 100).length;
     return [
       '<article class="book-card">',
       (series.coverV ? '<img class="book-cover" src="' + escapeAttr(coverUrl(series)) + '" alt="" />' : '<div class="book-cover"></div>'),
       '<div class="book-meta">',
       '<div class="book-title">' + escapeHtml(series.name) + '</div>',
-      '<div class="book-sub">' + series.chapters.length + ' chapters' + (latest ? (' • Latest: ' + escapeHtml(latest.title)) : '') + '</div>',
+      '<div class="book-sub">' + series.chapters.length + ' chapters • ' + readCount + ' read' + (latest ? (' • Latest: ' + escapeHtml(latest.title)) : '') + '</div>',
       '<div class="book-actions"><button type="button" data-open-series="' + escapeAttr(series.name) + '">Open title</button></div>',
       '</div>',
       '</article>'
@@ -375,13 +419,14 @@ function renderTitlePage() {
   state.chapterPage = Math.max(0, Math.min(state.chapterPage, totalPages - 1));
   const start = state.chapterPage * CHAPTERS_PER_PAGE;
   const visible = chapters.slice(start, start + CHAPTERS_PER_PAGE);
+  const progress = getMangaProfileProgress();
 
   const rows = visible.map((chapter) => {
     return [
       '<li class="title-chapter-row">',
       '<button type="button" class="title-chapter-btn" data-open-chapter="' + escapeAttr(chapter.key) + '">',
       '<span class="title-chapter-name">' + escapeHtml(chapter.title) + '</span>',
-      '<span class="title-chapter-meta">' + chapter.pages.length + ' pages</span>',
+      '<span class="title-chapter-meta">' + chapter.pages.length + ' pages' + (progress.percents[series.name + '::' + chapter.key] >= 100 ? ' • Read' : '') + '</span>',
       '</button>',
       '</li>'
     ].join('');
@@ -600,6 +645,7 @@ function escapeAttr(value) {
 async function initialize() {
   renderMessage('Loading manga library...');
   try {
+    await loadMangaProfileState();
     await loadMangaLibrary();
     render();
   } catch (error) {

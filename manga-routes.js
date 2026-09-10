@@ -36,6 +36,10 @@ function mangaLibraryKey() {
   return 'manga/library-index.json';
 }
 
+function mangaProfileStateKey() {
+  return 'manga/profile-state.json';
+}
+
 async function updateMangaLibrary(r2, update) {
   const library = (await r2.getJson(mangaLibraryKey())) || { version: 1, series: {} };
   library.series = (library.series && typeof library.series === 'object') ? library.series : {};
@@ -146,6 +150,18 @@ function registerMangaRoutes(app, r2, safeAsync) {
     if (!requireR2(r2, res)) return;
     const value = req.body || {};
     await r2.putJson(mangaLibraryKey(), value);
+    return res.json({ ok: true });
+  }));
+
+  app.get('/api/manga/profile-state', safeAsync(async (req, res) => {
+    if (!requireR2(r2, res)) return;
+    const data = await r2.getJson(mangaProfileStateKey());
+    return res.json({ data: data || {} });
+  }));
+
+  app.post('/api/manga/profile-state', safeAsync(async (req, res) => {
+    if (!requireR2(r2, res)) return;
+    await r2.putJson(mangaProfileStateKey(), req.body || {});
     return res.json({ ok: true });
   }));
 }

@@ -670,12 +670,6 @@ function renderTopbar(){
     render();
   };
 
-  const mangaBtn = document.createElement('button');
-  mangaBtn.type = 'button';
-  mangaBtn.className = 'subtle';
-  mangaBtn.textContent = 'Manga';
-  mangaBtn.onclick = () => { window.location.href = '/manga/index.html'; };
-
   if (view.mode === 'library'){
     if (routeBookSlug) {
       brandTitle.textContent = 'READING ROOM';
@@ -686,12 +680,12 @@ function renderTopbar(){
       brandTitle.style.cursor = '';
       brandTitle.onclick = null;
     }
-    topbarActions.append(searchInput, profileSwitcher, themeBtn, mangaBtn);
+    topbarActions.append(searchInput, profileSwitcher, themeBtn);
   } else {
     brandTitle.textContent = 'READING ROOM';
     brandTitle.style.cursor = 'pointer';
     brandTitle.onclick = returnToLibrary;
-    topbarActions.append(searchInput, profileSwitcher, themeBtn, mangaBtn);
+    topbarActions.append(searchInput, profileSwitcher, themeBtn);
   }
 }
 

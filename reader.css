@@ -131,6 +131,25 @@ button.subtle:hover{ background:var(--paper-raised); border-color:var(--line); }
 }
 [data-theme="dark"] .version-badge{ background:rgba(27,27,24,0.82); }
 .profile-switcher{ display:flex; gap:7px; align-items:center; flex-wrap:wrap; }
+.mode-switch{
+  display:inline-flex;
+  align-items:center;
+  border:1px solid var(--line);
+  border-radius:999px;
+  overflow:hidden;
+  margin-left:8px;
+  background:var(--paper-raised);
+}
+.mode-link{
+  padding:6px 10px;
+  color:var(--ink-soft);
+  font-size:11px;
+  text-decoration:none;
+  transition:background .2s ease, color .2s ease;
+  border-right:1px solid var(--line);
+}
+.mode-link:last-child{ border-right:none; }
+.mode-link.active{ background:var(--brass); color:#fff; }
 .profile-chip{
   padding:7px 11px;
   border-radius:999px;

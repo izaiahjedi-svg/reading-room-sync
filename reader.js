@@ -407,7 +407,6 @@
   const coverInput = document.getElementById('coverInput');
   let syncKey = '';
   const SYNC_KEY_STORAGE_KEY = 'reading-room:sync-key';
-  const ACTIVE_PROFILE_STORAGE_KEY = 'reading-room:active-profile-id';
   const SYNC_ENDPOINT = '/api/library';
   const STATE_ENDPOINT = '/api/state';
   const COVER_ENDPOINT = '/api/cover';
@@ -606,18 +605,6 @@
     chip.title = syncStatus.message || 'Sync status';
   }
 
-  function getDefaultProfileSettings(){
-    return { font:'Georgia, "Iowan Old Style", serif', fontSize:19, lineHeight:1.7, theme:'dark' };
-  }
-
-  function getDefaultProfiles(){
-    return {
-      izaiah: { name:'Izaiah', settings:getDefaultProfileSettings() },
-      andrew: { name:'Andrew', settings:getDefaultProfileSettings() },
-      david: { name:'David', settings:getDefaultProfileSettings() }
-    };
-  }
-
   function getActiveProfile(){
     return profiles[activeProfileId] || profiles.izaiah || { name:'Profile' };
   }
@@ -705,18 +692,6 @@
   function getStoredSyncKey(){
     try { return (window.localStorage.getItem(SYNC_KEY_STORAGE_KEY) || '').trim(); }
     catch (e) { return ''; }
-  }
-
-  function getStoredActiveProfileId(){
-    try { return (window.localStorage.getItem(ACTIVE_PROFILE_STORAGE_KEY) || '').trim().toLowerCase(); }
-    catch (e) { return ''; }
-  }
-
-  function storeActiveProfileId(profileId){
-    try {
-      if (profileId) window.localStorage.setItem(ACTIVE_PROFILE_STORAGE_KEY, profileId);
-      else window.localStorage.removeItem(ACTIVE_PROFILE_STORAGE_KEY);
-    } catch (e) {}
   }
 
   function stopProfileStateAutoRefresh(){
