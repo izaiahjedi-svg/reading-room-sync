@@ -454,7 +454,8 @@ function renderAdminPage() {
   if (mangaFolderBtn) mangaFolderBtn.onclick = () => {
     const title = (document.getElementById('adminMangaTitle').value || '').trim();
     if (!title) {
-      adminSetStatus('Enter a manga series title first');
+      const status = document.getElementById('adminUploadStatus');
+      if (status) status.textContent = 'Enter a manga series title first';
       return;
     }
     adminMangaUploadActive = true;
