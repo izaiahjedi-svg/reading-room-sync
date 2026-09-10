@@ -299,7 +299,13 @@ function renderTopbar() {
   importBtn.disabled = state.importing;
   importBtn.onclick = openFolderPicker;
 
-  topbarActions.append(themeBtn, importBtn);
+  const novelsBtn = document.createElement('button');
+  novelsBtn.type = 'button';
+  novelsBtn.className = 'subtle';
+  novelsBtn.textContent = 'Novels';
+  novelsBtn.onclick = () => { window.location.href = '/reader.html'; };
+
+  topbarActions.append(novelsBtn, themeBtn, importBtn);
 }
 
 function renderMessage(text) {
